@@ -10,7 +10,7 @@ R Studio Version 1.3.959 (Interface to R) https://rstudio.com/<br />
 cmdstanr R package Version 0.8.0 https://mc-stan.org/cmdstanr/<br />
 
 ### Repository structure
-#### Data processing steps 
+#### 0. Data processing steps 
 Raw data is not provided in this repository. Data sources and proper citation are described in the Materials and Methods section of the associated paper. 
 - `00`: Load the raw data
 - `01_a`: Prepare data for Stan
@@ -21,7 +21,7 @@ Raw data is not provided in this repository. Data sources and proper citation ar
 - `01_d`: Create waning immunity prior
 - `02`: Generate Stan models (stored in `job/stan/`)
 
-#### Running the model
+#### 1. Running the model
 All processed data required to run the model is found under `job/input/`. The required models are found under `job/stan/`
 Run 
 ```
@@ -34,13 +34,13 @@ job/Manaus_stan_job_2w_updated_strainfreq_RK_NB_survey_forcedbetaifr_SIRS.R
 ```
 Outputs are stored in `job/output/`
 
-#### Analysis
+#### 2. Analysis
 Our best fit and SIRS fit required for analyses are stored in `job/output`.
 - `03_a`: Full model analysis (fit, parameter estimates, calculations, plots)
 - `03_b`: SIRS model analysis
 - `04`: Counterfactual analysis 
 
-#### Published figures
+#### 3. Published figures
 - `figures/PaperImages_updated`: Generates final figures used in the paper
 
 ### How to Cite
