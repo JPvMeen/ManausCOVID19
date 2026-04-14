@@ -11,7 +11,7 @@ cmdstanr R package Version 0.8.0 https://mc-stan.org/cmdstanr/<br />
 
 ### Repository structure
 #### 0. Data processing steps 
-Raw data is not provided in this repository. Data sources and proper citation are described in the Materials and Methods section of the associated paper. 
+Raw data are not provided in this repository. Data sources and proper citation are described in the Materials and Methods section of the associated paper. 
 - `00`: Load the raw data
 - `01_a`: Prepare data for Stan
 - `01_b`: Convert 5-year binned contact matrix to 10-year bins
