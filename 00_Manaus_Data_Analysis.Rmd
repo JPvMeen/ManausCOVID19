@@ -1,0 +1,974 @@
+---
+author: "Jan Paul van Meenen"
+---
+
+Contains mainly data analysis from varying sources
+
+## Packages
+```{r include=FALSE}
+#data management 
+data_management_packages_to_install <- c("data.table", "tidyverse", "readxl", "yarrr", "ggplot2", "zoo", "ggdist", "ggbeeswarm", "GGally")
+
+packages_to_install <- c(data_management_packages_to_install)
+
+# Check and install packages using a for loop
+for (package in packages_to_install) {
+  if (!requireNamespace(package, quietly = TRUE)) {
+    install.packages(package)
+  }
+  library(package, character.only = TRUE)
+}
+```
+
+## Data
+### Agebin
+```{r}
+agebin100_5y_levels <- c(paste0("[", seq(0, 95, by = 5), ",", seq(5, 100, by = 5), "]"), "[100,inf]")
+agebin100_10y_levels <- c(paste0("[", seq(0, 90, by = 10), ",", seq(10, 100, by = 10), "]"), "[100,inf]")
+agebin70_10y_levels <- c(paste0("[", seq(0, 60, by = 10), ",", seq(10, 70, by = 10), "]"), "[70,inf]")
+agebin70_5y_levels <- c(paste0("[", seq(0, 70, by = 5), ",", seq(5, 75, by = 5), "]"), "[75,inf]")
+```
+
+### Excess deaths 
+```{r}
+alldata_excessDeaths <- read_excel("data/excess_deaths_manaus_01apr2020_01may2021_compact.xlsx")
+data_excessDeaths <- alldata_excessDeaths %>% 
+  filter(!is.na(Covid_period_excess_deaths)) %>%
+  mutate(D = as.numeric(Covid_period_excess_deaths),
+         date = as.Date(Covid_dates_2020_2021)
+        ) %>%
+  select(date, D)
+data_excessDeaths
+```
+
+#### rolling min
+```{r}
+library(zoo)
+rollingmin_excessdeaths_data <- alldata_excessDeaths %>%
+  rename(pub_piv_burials_cremats_2020_2021 = "2020_2021_pub_priv_burials_cremats") %>%
+  select(Covid_dates_2020_2021, 
+         pub_piv_burials_cremats_2020_2021,
+         PreCovid_deaths_adjusted
+         ) %>%
+  mutate(Covid_dates_2020_2021 = as.Date(Covid_dates_2020_2021),
+         PreCovid_deaths_15d_center_running_mean = rollapply(PreCovid_deaths_adjusted, 
+                                                            width = 15, 
+                                                            FUN = mean,
+                                                            align = "center", 
+                                                            fill = NA),
+         Covid_period_excess_deaths_mean = pub_piv_burials_cremats_2020_2021 - PreCovid_deaths_15d_center_running_mean,
+         PreCovid_deaths_7d_center_running_min = rollapply(PreCovid_deaths_adjusted, 
+                                                            width = 7, 
+                                                            FUN = min,
+                                                            align = "center", 
+                                                            fill = NA),
+         Covid_period_excess_deaths_min = pub_piv_burials_cremats_2020_2021 - PreCovid_deaths_7d_center_running_min,
+         FUN_diff = Covid_period_excess_deaths_min - Covid_period_excess_deaths_mean
+         ) 
+
+rollingmin_excessdeaths_data
+```
+
+
+### Seroprevalence data
+#### Manaus
+```{r}
+data_sero <- read.csv("data/sero_consolidated_weights.csv", stringsAsFactors = F) %>%
+  select(abbott_sc, location, donmo, min_dt, mid_adjust) %>%
+  mutate(
+    sample_month = case_when(
+      donmo == 2 ~ "February",
+      donmo == 3 ~ "March",
+      donmo == 4 ~ "April",
+      donmo == 5 ~ "May",
+      donmo == 6 ~ "June",
+      donmo == 7 ~ "July",
+      donmo == 8 ~ "August",
+      donmo == 9 ~ "September",
+      donmo == 10 ~ "October"),
+    covid_resultado_alt = ifelse(abbott_sc < 0.4, "Neg", 
+                                 ifelse(abbott_sc >=0.4 & abbott_sc <1.4, "Ind", "Pos")),
+    #Dates
+    min_dt = mdy(min_dt))
+
+data_sero
+```
+
+```{r}
+data_prev_count <- data_sero %>%
+  filter(location == "Manaus") %>%
+  group_by(min_dt) %>%
+  summarise(count = n()) %>%
+  rename(date = min_dt,
+         datapoints = count) %>%
+  select(date, datapoints) 
+
+data_prev_count
+```
+
+```{r}
+data_prev_manaus <- read.csv("data/plot_df_prevalences.csv", stringsAsFactors = F) %>%
+  filter(location == "Manaus") %>%
+  mutate(min_dt = mdy(min_dt),
+         type = as.factor(type)) %>%
+  rename(date = min_dt, city = location) %>%
+  select(city, prev, date, type)
+  
+data_prev_manaus
+```
+
+```{r}
+data_prev_manaus %>%
+  ggplot(aes(x=date, y=prev)) +
+  geom_point(aes(color = type)) + 
+  geom_smooth(aes(color = type), se = FALSE) + 
+  scale_x_date(date_labels = "%b\n%Y", 
+               date_breaks = "1 month") +#, 
+               #limits = as.Date(c("2020-01-01","2020-11-01"))) +
+  theme_bw()
+```
+
+
+```{r}
+data_prev <- data_excessDeaths %>%
+  select(date) %>%
+  left_join(
+    data_prev_count,
+    by = "date") %>%
+  filter(!is.na(datapoints)) %>%
+  left_join(
+    data_prev_manaus %>%
+      select(date, type, prev) %>%
+      pivot_wider(names_from = type, values_from = prev),
+    by = "date"
+  )
+data_prev
+```
+
+
+```{r}
+data_prev_ASRW14 <- data_prev %>% 
+  rename(prev = "Age-sex re-weighted (1.4)") %>%
+  select("date","prev")
+data_prev_ASRW14
+```
+
+```{r}
+data_prev_SC <- data_prev %>% 
+  rename("prev" = "Seroreversion corrected (1.4)") %>%
+  select("date","prev")
+data_prev_SC
+```
+
+####EightCities
+##### By month
+```{r}
+data_EightCities <- read_rds("data/(doi_10_5061_dryad_dz08kps08__v20220407) Eight cities/data_commit9490ac1/Bloodbank.rds") %>%
+  filter(blood_center == "HEMOAM",
+         idade > 0) %>%
+  rename(AGE = idade)# %>%
+  #select(sex, AGE, month, interpretation, result)
+
+data_EightCities_agebin <- data_EightCities %>%
+  rename(interpretation_140 = interpretation) %>%
+  mutate(week = week(donation_date), #also add donation week for more granularity
+         AGEGROUP = case_when(AGE < 10 ~ "[0,10]",
+                              (AGE >= 10 & AGE < 20) ~ "[10,20]",
+                              (AGE >= 20 & AGE < 30) ~ "[20,30]",
+                              (AGE >= 30 & AGE < 40) ~ "[30,40]",
+                              (AGE >= 40 & AGE < 50) ~ "[40,50]",
+                              (AGE >= 50 & AGE < 60) ~ "[50,60]",
+                              (AGE >= 60 & AGE < 70) ~ "[60,70]",
+                              AGE >= 70 ~ "[70,inf]"),
+         AGEGROUP = as.factor(AGEGROUP),
+         
+         interpretation_049 = case_when(result >= 0.49 ~ "Positive",
+                                       result < 0.49 ~ "Negative"),
+         interpretation_010 = case_when(result >= 0.10 ~ "Positive",
+                                       result < 0.10 ~ "Negative")
+  ) %>% 
+  select(sex, education, declared_race, AGE, AGEGROUP, donation_date, month, week, interpretation_010, interpretation_049, interpretation_140, result)
+
+data_EightCities_agebin
+
+data_EightCities_agebin %>%
+  group_by(month) %>%
+  summarise(median_donation_date = median(donation_date),
+            mean_donation_date = mean(donation_date))
+```
+
+```{r, fig.width = 14}
+data_EightCities_agebin %>%
+  group_by(month, result) %>%
+  ggplot(aes(x=log(result))) +
+  geom_histogram(aes(fill = interpretation_049), binwidth = 0.5, position ="identity") +
+  facet_wrap(~month) +
+  geom_vline(xintercept = log(c(0.1,0.49,1.4)), linetype = "dashed") +
+  theme_bw()
+
+data_EightCities_agebin %>%
+  group_by(month, result) %>%
+  ggplot(aes(x=log(result))) +
+  geom_histogram(aes(fill = interaction(AGEGROUP, interpretation_049)), binwidth = 0.5, position ="identity") +
+  facet_wrap(~month) +
+  geom_vline(xintercept = log(c(0.1, 0.49, 1.4)), linetype = "dashed") +
+  theme_bw()
+```
+
+
+
+```{r, fig.width = 14}
+data_EightCities_agebin %>%
+  group_by(month, result) %>%
+  ggplot(aes(x=log(result))) +
+  geom_histogram(aes(fill = interpretation_049), binwidth = 0.5, position ="identity") +
+  facet_wrap(~month) +
+  geom_vline(xintercept = log(c(0.1,0.49,1.4)), linetype = "dashed") +
+  theme_bw()
+
+data_EightCities_agebin %>%
+  group_by(month, result) %>%
+  ggplot(aes(x=log(result))) +
+  geom_histogram(aes(fill = interaction(AGEGROUP, interpretation_049)), binwidth = 0.5, position ="identity") +
+  facet_wrap(~month) +
+  geom_vline(xintercept = log(c(0.1, 0.49, 1.4)), linetype = "dashed") +
+  #scale_fill_manual(values = c(
+  #  "AGE[0,29].Positive" = "darkred", "AGE[0,29].Negative" = "lightcoral",
+  #  "AGE[30,39].Positive" = "darkorange", "AGE[30,39].Negative" = "lightsalmon",
+  #  "AGE[40,49].Positive" = "darkgreen", "AGE[40,49].Negative" = "lightgreen",
+  #  "AGE[50+].Positive" = "darkblue", "AGE[50+].Negative" = "lightblue"
+  #  )
+  #) +
+  theme_bw()
+```
+
+
+```{r, fig.width = 14}
+data_EightCities_agebin %>%
+  group_by(AGEGROUP, month, interpretation_049) %>%
+  ggplot(aes(y=result, 
+             x=month,
+             color = AGEGROUP#,
+             #alpha = interpretation
+             )
+         ) +
+  geom_quasirandom() + 
+  geom_hline(yintercept=c(0.1,0.49,1.4), linetype='dashed', size=0.75) +
+  #geom_line(aes(color = AGEGROUP)) +
+  #labs(title = "Hospitaldeaths grouped by age-category",
+  #     y = "deaths") +
+  facet_wrap(~AGEGROUP, ncol = 1) +
+  #scale_x_continuous(breaks = 3:15) +
+  scale_y_log10(breaks= c(0.01,0.1,0,0.49,1.0,1.4,10)) +
+  scale_x_continuous(breaks = unique(data_EightCities_agebin$month)) +
+  #scale_alpha_manual(values = c("Positive" = 1, "Negative" = 0.1)) +
+  #coord_flip()+
+  theme_bw()
+
+data_EightCities_agebin %>%
+  group_by(AGEGROUP, month, interpretation_049) %>%
+  ggplot(aes(y=result, 
+             x=month,
+             color = AGEGROUP,
+             group = AGEGROUP
+             )
+         ) +
+  geom_quasirandom(dodge.width = 1) + 
+  #geom_line(aes(color = AGEGROUP)) +
+  #labs(title = "Hospitaldeaths grouped by age-category",
+  #     y = "deaths") +
+  #facet_wrap(~AGEGROUP, ncol = 1) +
+  geom_hline(yintercept=(c(0.1,0.49,1.4)), linetype='dashed', color=c('red', 'purple', 'blue')) +
+  #scale_x_continuous(breaks = 3:15) +
+  scale_y_log10(breaks= c(0.01,0.1,0,1.0,10)) +
+  scale_x_continuous(breaks = unique(data_EightCities_agebin$month)) +
+  theme_bw()
+```
+
+```{r, fig.width = 14}
+library(ggbeeswarm)
+data_EightCities_agebin %>%
+  group_by(AGEGROUP, interpretation_049) %>%
+  ggplot(aes(y=result, 
+             x=month,
+             color = AGEGROUP, 
+             alpha= interpretation_049
+             )
+         ) +
+  geom_quasirandom(side="left") + 
+  #geom_line(aes(color = AGEGROUP)) +
+  #labs(title = "Hospitaldeaths grouped by age-category",
+  #     y = "deaths") +
+  #facet_wrap(~factor(interpretation, levels =c("Positive", "Negative")), scales = "free_y", ncol = 1) +
+  geom_hline(yintercept=c(0.1,0.49,1.4), linetype='dashed', size=1,color=c('red', 'purple', 'blue')) +
+  scale_alpha_manual(values = c("Positive" = 1, "Negative" = 0.1)) +
+  scale_x_continuous(breaks = 3:15) +
+  scale_y_log10(breaks= c(0.01,0.1,0,0.49,1.0,1.4,10)) +
+  #scale_color_manual(values = c(
+  #  "[0,29].Positive" = "darkred", "[0,29].Negative" = "lightcoral",
+  #  "[30,39].Positive" = "darkorange", "[30,39].Negative" = "lightsalmon",
+  #  "[40,49].Positive" = "darkgreen", "[40,49].Negative" = "lightgreen",
+  #  "[50+].Positive" = "darkblue", "[50+].Negative" = "lightblue"
+  #  )
+  #) +
+  theme_bw()
+```
+
+```{r, fig.width = 14, warning = FALSE}
+data_EightCities_agebin %>%
+  group_by(AGEGROUP, month, interpretation_049) %>%
+  summarise(count = n()) %>%
+  ggplot(aes(x=as.factor(month), y=count, fill = interaction(AGEGROUP, interpretation_049)
+             )
+         ) +
+  geom_bar(position="stack", stat="identity") +
+#  facet_wrap(~AGEGROUP, ncol = 1) +
+  labs(title = "Seroprevalence Count") +
+  #scale_fill_manual(values = c(
+  #  "AGE[0,29].Positive" = "darkred", "AGE[0,29].Negative" = "lightcoral",
+  #  "AGE[30,39].Positive" = "darkorange", "AGE[30,39].Negative" = "lightsalmon",
+  #  "AGE[40,49].Positive" = "darkgreen", "AGE[40,49].Negative" = "lightgreen",
+  #  "AGE[50+].Positive" = "darkblue", "AGE[50+].Negative" = "lightblue"
+  #  )
+  #) +
+  theme_bw()
+
+data_EightCities_agebin %>%
+  group_by(AGEGROUP, month, interpretation_049) %>%
+  summarise(percentage = n() / nrow(.)) %>%
+  ggplot(aes(x = as.factor(month), y = percentage, fill = interaction(AGEGROUP, interpretation_049)
+             )
+         ) +
+  geom_bar(position = "fill", stat = "identity") +
+  labs(title = "Positive Seroprevalence Percentage") +
+  #scale_fill_manual(values = c(
+  #  "AGE[0,29].Positive" = "darkred", "AGE[0,29].Negative" = "lightcoral",
+  #  "AGE[30,39].Positive" = "darkorange", "AGE[30,39].Negative" = "lightsalmon",
+  #  "AGE[40,49].Positive" = "darkgreen", "AGE[40,49].Negative" = "lightgreen",
+  #  "AGE[50+].Positive" = "darkblue", "AGE[50+].Negative" = "lightblue"
+  #  )
+  #) +
+  theme_bw()
+
+data_EightCities_agebin %>%
+  #filter(interpretation %in% c("Positive", "Negative")) %>%
+  group_by(AGEGROUP, month) %>%
+  summarise(seroprevalence = sum(interpretation_049 == "Positive") / n()) %>%
+  ggplot(aes(x = month, y = seroprevalence, color = AGEGROUP)) +
+  geom_point() +
+  geom_line() + 
+  labs(title = "Crude seroprevalence",
+       y = "Seroprevalence") +
+  scale_x_continuous(breaks = c(3:15)) +
+  #scale_color_manual(values = c(
+  #  "AGE[0,29]" = "red",
+  #  "AGE[30,39]" = "orange",
+  #  "AGE[40,49]" = "green",
+  #  "AGE[50+]" = "blue"
+  #  )
+  #) +
+  theme_bw()
+
+data_EightCities_agebin %>%
+  #filter(interpretation %in% c("Positive", "Negative")) %>%
+  group_by(AGEGROUP, month) %>%
+  summarise(seroprevalence = sum(interpretation_140 == "Positive") / n()) %>%
+  ggplot(aes(x = month, y = seroprevalence, color = AGEGROUP)) +
+  geom_point() +
+  geom_line() + 
+  labs(title = "Crude seroprevalence",
+       y = "Seroprevalence") +
+  scale_x_continuous(breaks = c(3:15)) +
+  #scale_color_manual(values = c(
+  #  "AGE[0,29]" = "red",
+  #  "AGE[30,39]" = "orange",
+  #  "AGE[40,49]" = "green",
+  #  "AGE[50+]" = "blue"
+  #  )
+  #) +
+  theme_bw()
+```
+
+```{r, fig.width =14}
+data_EightCities_agebin %>%
+  filter(AGEGROUP != "[70,inf]") %>%
+  pivot_longer(cols = starts_with("interpretation_"), 
+               names_to = "cutoff", 
+               values_to = "interpretation") %>%
+  mutate(cutoff = gsub("interpretation_", "", cutoff)) %>%
+  group_by(AGEGROUP, month, cutoff) %>%
+  summarise(samplecount = n(),
+            seroprevalence = sum(interpretation == "Positive") / samplecount, .groups = "drop") %>%
+  ggplot(aes(x = month, y = seroprevalence, color = AGEGROUP, linetype = cutoff)) +
+  geom_point(aes(size = samplecount)) +
+  geom_line(linewidth = .8) + 
+  labs(title = "Crude seroprevalence",
+       y = "Seroprevalence") +
+  scale_x_continuous(breaks = c(3:15)) +
+  scale_size_continuous(range = c(0.1, 5)) +
+  facet_wrap(~AGEGROUP) +
+  scale_linetype_manual(values = c("140" = "solid", "049" = "dashed", "010" = "dotted")) +
+  theme_bw()
+```
+
+
+###### stan seroprevalence data
+```{r}
+stan_seroprevalence_data <- data_EightCities_agebin %>%
+  filter(AGEGROUP != "[70,inf]") %>%
+  group_by(month) %>%
+  mutate(median_date = median(donation_date)) %>%
+  ungroup() %>%
+  group_by(month, median_date, AGEGROUP) %>%
+  summarise(Positive = sum(interpretation_140 == "Positive"),
+            SampleSize = n(),
+            seroprevalence = sum(interpretation_140 == "Positive") / n()) 
+
+stan_seroprevalence_data
+```
+
+```{r}
+data_serosamples_wide <- stan_seroprevalence_data %>%
+  ungroup() %>%
+  select(median_date, AGEGROUP, SampleSize) %>%
+  pivot_wider(names_from = AGEGROUP, values_from = SampleSize) %>%
+  rename(date = median_date)
+  
+data_serosamples_wide
+
+data_seropos_wide <- stan_seroprevalence_data %>%
+  ungroup() %>%
+  select(median_date, AGEGROUP, Positive) %>%
+  pivot_wider(names_from = AGEGROUP, values_from = Positive) %>%
+  rename(date = median_date)
+
+data_seropos_wide
+
+```
+
+
+
+##### Longitudinal
+```{r, fig.width = 14, warning = FALSE}
+data_sero_longitudinal_raw <- read.csv("~/BIBC/General Research Profile/localrepo/GRPproject/data/(doi_10_5061_dryad_dz08kps08__v20220407) Eight cities/data_commit85e0cc2/repeat_blood_donors.csv")
+
+data_sero_longitudinal <- data_sero_longitudinal_raw %>%
+  filter(covid_result != "", assay != "COV-2IgGII") %>%
+  separate(covid_result, into = c("result", "concatenation"), sep = " ") %>%
+  select(!concatenation) %>%
+  mutate(result = as.numeric(result),
+         donation_date = as.Date(paste0(donyr, "-", donmo, "-", donda))) %>%
+  arrange(donorid, donation_date) %>%
+  group_by(donorid) %>% 
+  mutate(ndon = n()) %>%
+  filter(ndon >= 2) 
+
+
+data_sero_longitudinal_firsttest <- data_sero_longitudinal %>%
+  slice(1:2) %>%
+  filter(first(result) < 0.49,
+         first(donation_date) < "2020-07-01")
+
+data_sero_longitudinal_firsttest %>%
+  filter(sex %in% c("F", "M")) %>%
+  #group_by(age) %>%
+  ggplot(aes(x=donation_date, y=result)) +
+  geom_line(aes(group=donorid),
+            linetype = "dashed",
+            size = 0.1,
+            color="darkgray",
+            alpha = 0.7) +
+  geom_point(aes(color=donorid)) +
+  #geom_hline(yintercept=c(0.1,0.49,1.4), linetype = "dashed", color=c('red', 'purple', 'blue')) +
+  scale_y_log10(breaks= c(0.01,0.1,1.0,10)) +
+  scale_color_gradientn(colors = rainbow(length(unique(data_sero_longitudinal_firsttest$donorid)))) +
+  facet_wrap(~age, ncol = 2) +
+  theme_bw()
+```
+
+```{r, fig.width = 14, warning = FALSE}
+data_sero_longitudinal %>%
+  filter(sex %in% c("F", "M"),
+         donyr == "2020") %>%
+  group_by(year(donation_date)) %>%
+  ggplot(aes(x=month(donation_date), y=result)) +
+  geom_point(aes(color=donorid)) +
+  geom_line(aes(group=donorid),
+            linetype = "dashed",
+            size = 0.1,
+            color="darkgray",
+            alpha = 0.7) +
+  #geom_hline(yintercept=c(0.1,0.49,1.4), linetype = "dashed", color=c('red', 'purple', 'blue')) +
+  stat_summary(fun = "median", geom = "line", aes(group = 1), color = "black", linetype = "solid") +
+  scale_y_log10(breaks= c(0.01,0.1,1.0,10)) +
+  scale_color_gradientn(colors = rainbow(length(unique(data_sero_longitudinal$donorid)))) +
+  facet_wrap(~age, ncol=1, scales = "free_x") +
+  theme_bw()
+```
+
+```{r, fig.width = 14, warning = FALSE}
+data_sero_longitudinal %>%
+  mutate(donmo_cor = case_when(
+    donyr == 2020 ~ donmo,
+    donyr == 2021 ~ donmo + 12
+  )
+         ) %>%
+  arrange(age) %>%
+  mutate(age = factor(age)) %>%
+  filter(sex %in% c("F", "M"),
+         ndon >=4) %>%
+  group_by(age) %>%
+  ggplot(aes(x=donmo_cor, y=result)) +
+  geom_line(aes(group=donorid),
+            linetype = "dashed",
+            size = 0.1,
+            color="darkgray",
+            alpha = 0.7) +
+  geom_quasirandom(aes(color=age),side="left") + 
+  scale_y_log10(breaks= c(0.01,0.1,1.0,10)) +
+  facet_wrap(~age, ncol=1, scales = "free_x") +
+  theme_bw()
+```
+
+```{r}
+dim(data_sero_longitudinal)[1]
+```
+
+
+```{, BROKEN fig.width = 14, warning = FALSE}
+data_sero_longitudinal %>%
+  group_by(donorid) %>%
+  slice(c(1, 2))%>%
+  select(donorid, result) %>%
+  spread(key = donorid, value = result, sep = "_")
+
+
+  ggplot(aes(x = result[1], y = result[2], group=donorid)) +
+  geom_point(aes(color=donorid)) +
+  labs(x = "First Donation", y = "Second Donation") +
+  ggtitle("Scatter Plot of First vs Second Donation") +
+  scale_x_log10(breaks= c(0.01,0.1,1.0,10)) +
+  scale_y_log10(breaks= c(0.01,0.1,1.0,10)) +
+  scale_color_gradientn(colors = rainbow(length(unique(data_sero_longitudinal_firsttest$donorid)))) +
+  theme_bw()
+```
+
+#### Demography
+```{r}
+pop2020 <- readRDS("~/BIBC/General Research Profile/localrepo/GRPproject/data/(doi_10_5061_dryad_dz08kps08__v20220407) Eight cities/data/population2020.rds")
+
+Eightcities_pop2020 <- readRDS("~/BIBC/General Research Profile/localrepo/GRPproject/data/(doi_10_5061_dryad_dz08kps08__v20220407) Eight cities/data_commit85e0cc2/population2020_eightcities.rds")
+```
+
+```{r}
+cities <- c("HEMOAM", "FPS", "HEMOCE", "HEMOBA", "HEMOMINAS", "HEMOPE", "HEMEPAR", "HEMORIO")
+codes <- c("HEMOAM" = 130260, "FPS" = 355030, "HEMOCE" = 230440, "HEMOBA" = 292740, 
+             "HEMOMINAS" = 310620, "HEMOPE" = 261160, "HEMEPAR" = 410690, "HEMORIO" = 330455)
+pop2020
+
+pop2020_remapped <- pop2020 %>% 
+  mutate(code = floor(code/10)) %>%
+  filter(code %in% codes[cities]) %>%
+  mutate(city = names(codes)[match(code, codes)]) %>%
+  filter(city == "HEMOAM") %>%
+  mutate(
+    AGEGROUP = case_when(
+      age_bin == "0-5" ~ "[0,10]",
+      age_bin == "5-10" ~ "[0,10]",
+      age_bin == "10-15" ~ "[10,20]",
+      age_bin == "15-20" ~ "[10,20]",
+      age_bin == "20-25" ~ "[20,30]",
+      age_bin == "25-30" ~ "[20,30]",
+      age_bin == "30-35" ~ "[30,40]",
+      age_bin == "35-40" ~ "[30,40]",
+      age_bin == "40-45" ~ "[40,50]",
+      age_bin == "45-50" ~ "[40,50]",
+      age_bin == "50-55" ~ "[50,60]",
+      age_bin == "55-60" ~ "[50,60]",
+      age_bin == "60-65" ~ "[60,70]",
+      age_bin == "65-70" ~ "[60,70]",
+      TRUE ~ "[70,inf]"), 
+    AGEGROUP = factor(AGEGROUP, levels = agebin70_10y_levels)) %>%
+  pivot_wider(names_from = CS_SEXO, values_from = population, names_prefix = "population_") %>%
+  rename(female_population = population_F, male_population = population_M) %>%
+  group_by(AGEGROUP) %>%
+  summarise(female_population = sum(female_population), male_population = sum(male_population)) %>%
+  mutate(total_population = female_population + male_population) 
+  
+pop2020_remapped
+
+sum(pop2020_remapped$total_population)
+
+```
+
+```{r, fig.width=14}
+pop2020_remapped %>%
+  ggplot(aes(x = AGEGROUP)) +
+  geom_bar(aes(y = -female_population, fill = "Female"), stat = "identity") +
+  geom_bar(aes(y = male_population, fill = "Male"), stat = "identity") +
+  #scale_y_continuous(breaks = c(-200000,-150000,-100000,-50000, 0,  50000, 100000, 150000, 200000), limits = c(-200000,200000), labels = abs) + 
+  labs(title = "Population Pyramid of Manaus, 2020",
+       x = "Age Group",
+       y = "Population") +
+  coord_flip() +
+  theme_bw() +
+  theme(legend.title = element_blank())
+```
+
+
+
+### Hospital data
+#### 2020
+```{r}
+data_hosp_manaus_2020 <-  read.csv("data/INFLUD20-01-05-2023.csv", 
+                              stringsAsFactors = F, 
+                              sep = ";") %>% 
+  filter(ID_MUNICIP == "MANAUS" ) %>% # Final classification, 5 is COVID-19
+  select(DT_INTERNA, ID_MUNICIP, ID_MN_INTE, ID_MN_RESI, EVOLUCAO, DT_SIN_PRI, DT_EVOLUCA, CLASSI_FIN, NU_IDADE_N, CS_SEXO) %>%
+  mutate(DT_INTERNA = dmy(DT_INTERNA),
+         DT_EVOLUCA = dmy(DT_EVOLUCA),
+         DT_SIN_PRI = dmy(DT_SIN_PRI)) %>%
+  rename(DT_INTAKE = DT_INTERNA,
+         EVOLUTION = EVOLUCAO,
+         DT_EVOLUTION= DT_EVOLUCA,
+         DT_SYM = DT_SIN_PRI,
+         AGE = NU_IDADE_N,
+         SEX = CS_SEXO)
+data_hosp_manaus_2020 %>% 
+  select(DT_INTAKE, ID_MUNICIP, ID_MN_INTE, ID_MN_RESI, EVOLUTION, DT_SYM, DT_EVOLUTION, CLASSI_FIN, AGE, SEX)
+```
+
+```{r}
+data_hosp_manaus_2020_count <- data_hosp_manaus_2020 %>%
+  group_by(DT_INTAKE) %>%
+  summarise(count = n()) %>% 
+  rename(date = DT_INTAKE,
+         newHosp = count)
+data_hosp_manaus_2020_count
+```
+
+#### 2021
+```{r}
+data_hosp_manaus_2021 <-  read.csv("data/INFLUD21-01-05-2023.csv", 
+                              stringsAsFactors = F, 
+                              sep = ";") %>% 
+  filter(ID_MUNICIP == "MANAUS") %>% 
+  select(DT_INTERNA, ID_MUNICIP, ID_MN_INTE, ID_MN_RESI, EVOLUCAO, DT_SIN_PRI, DT_EVOLUCA, CLASSI_FIN, NU_IDADE_N, CS_SEXO) %>%
+  mutate(DT_INTERNA = dmy(DT_INTERNA),
+         DT_EVOLUCA = dmy(DT_EVOLUCA),
+         DT_SIN_PRI = dmy(DT_SIN_PRI)) %>%
+  rename(DT_INTAKE = DT_INTERNA,
+         EVOLUTION = EVOLUCAO,
+         DT_EVOLUTION= DT_EVOLUCA,
+         DT_SYM = DT_SIN_PRI,
+         AGE = NU_IDADE_N,
+         SEX = CS_SEXO)
+
+```
+
+```{r}
+data_hosp_manaus_2021_count <- data_hosp_manaus_2021 %>%
+  group_by(DT_INTAKE) %>%
+  summarise(count = n()) %>% 
+  rename(date = DT_INTAKE,
+         newHosp = count)
+data_hosp_manaus_2021_count
+```
+
+#### 2020 + 2021
+```{r}
+data_hosp_manaus_raw <- data_hosp_manaus_2020 %>%
+  bind_rows(data_hosp_manaus_2021)
+```
+
+#### Age binned
+```{r}
+data_hosp_manaus_agebin <- data_hosp_manaus_raw %>%
+  filter(!CLASSI_FIN %in% c(1, 2, 3)) %>% # Final classification, 5 is COVID-19)
+  mutate(
+    AGEGROUP = case_when(
+      AGE < 10 ~ "[0,10]",
+      AGE >= 70 ~ "[70,inf]",
+      TRUE ~ paste0("[", floor(AGE / 10) * 10, ",", floor(AGE / 10) * 10 + 10, "]")
+    ), AGEGROUP = factor(AGEGROUP, levels = agebin70_10y_levels),
+    AGEGROUP_10y = case_when(
+      AGE < 10 ~ "[0,10]",
+      AGE >= 100 ~ "[100,inf]",
+      TRUE ~ paste0("[", floor(AGE / 10) * 10, ",", floor(AGE / 10) * 10 + 10, "]")
+    ), AGEGROUP_10y = factor(AGEGROUP_10y, levels = agebin100_10y_levels),
+    AGEGROUP_5y = case_when(
+      AGE < 5 ~ "[0,5]",
+      AGE >= 100 ~ "[100,inf]",
+      TRUE ~ paste0("[", floor(AGE / 5) * 5, ",", floor(AGE / 5) * 5 + 5, "]")
+    ), AGEGROUP_5y = factor(AGEGROUP_5y, levels = agebin100_5y_levels)
+  ) 
+data_hosp_manaus_agebin
+
+data_hosp_manaus_agebin_counts <- data_hosp_manaus_agebin %>%
+  pivot_longer(cols = c(DT_INTAKE, DT_EVOLUTION), names_to = "DT_TYPE", values_to = "date") %>%
+  group_by(DT_TYPE, date, AGEGROUP) %>%
+  summarise(count = n()) %>%
+  mutate(date = as.Date(date)) 
+
+data_hospdeaths <- data_hosp_manaus_agebin %>%
+  filter(EVOLUTION == 2) %>%
+  group_by(DT_EVOLUTION, AGEGROUP) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  complete(AGEGROUP, DT_EVOLUTION = seq(min(DT_EVOLUTION, na.rm = TRUE), 
+                                        max(DT_EVOLUTION, na.rm = TRUE), by = "1 day")
+           ) %>%
+  mutate(count = ifelse(is.na(count), 0, count)) %>%
+  select(DT_EVOLUTION, AGEGROUP, count) 
+
+data_hospdeaths
+
+data_hospdeaths_wide <- data_hospdeaths %>%
+  pivot_wider(names_from = AGEGROUP, values_from = count, values_fill = 0) %>%
+  select(DT_EVOLUTION, agebin70_10y_levels)
+  
+data_hospdeaths_wide
+tail(data_hospdeaths_wide)
+```
+
+### Moblity data
+```{r}
+mobility_brazil_2020 <- read_csv("data/Region_Mobility_Report_CSVs/2020_BR_Region_Mobility_Report.csv")
+mobility_brazil_2021 <- read_csv("data/Region_Mobility_Report_CSVs/2021_BR_Region_Mobility_Report.csv")
+mobility_brazil_2022 <- read_csv("data/Region_Mobility_Report_CSVs/2022_BR_Region_Mobility_Report.csv")
+
+mobility_brazil <- mobility_brazil_2020 %>%
+  rbind(mobility_brazil_2021) #%>%
+  #rbind(mobility_brazil_2021)
+```
+
+```{r}
+mobility_manaus <- mobility_brazil %>%
+  filter(sub_region_1 == "State of Amazonas",
+         sub_region_2 == "Manaus"
+         ) %>%
+  select(date, contains("baseline")) %>%
+  mutate(mean_percent_change_from_baseline = rowMeans(select(., contains("baseline")), na.rm = TRUE)) %>%
+  pivot_longer(
+    cols = c(contains("baseline")),
+    names_to = "mobility_percent_change_from_baseline",
+    values_to = "changes"
+  ) %>%
+  extract("mobility_percent_change_from_baseline", 
+          into = "mobility", 
+          regex = "(.+)_percent_change_from_baseline", 
+          convert = TRUE) %>%
+  group_by(mobility) %>%
+  mutate(rolling_mean = rollmean(changes, 7, fill=NA,align = "center", partial = TRUE)) %>%
+  ungroup()
+  
+mobility_manaus
+```
+
+```{r, fig.width = 14}
+mobility_manaus %>%
+  ggplot(aes(x=date, y=changes, color = mobility, legend = FALSE)) +
+  geom_line() + 
+  geom_point() +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b \n %y") + 
+  scale_y_continuous(breaks = seq(-100,100, by = 10),labels = function(x) paste0(x, "%")) +
+  theme_bw() +
+  ylab("Mobility compared to baseline") +
+  xlab("") +
+  labs(title = "Mobility compared to baseline (based on Mobility Reports)") +
+  facet_wrap(~mobility) + 
+    theme(
+        legend.position = "none", 
+        plot.title = element_text(size = 24),
+        #axis.text.x = element_text(size = 16),
+        #axis.text.y = element_text(size = 16),
+        axis.title.x = element_text(size = 18),
+        axis.title.y = element_text(size = 18),
+        strip.text = element_text(size = 18))
+
+mobility_manaus %>%
+  filter(mobility == "transit_stations") %>%
+  ggplot(aes(x=date, y=changes)) +
+  geom_line(color = "#00B0F6", size = 2) + 
+  geom_point(color = "black",size = 2) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b \n %y") + 
+  scale_y_continuous(breaks = seq(-100,100, by = 10),labels = function(x) paste0(x, "%")) +
+  theme_bw() +
+  ylab("Mobility compared to baseline") +
+  xlab("") +
+  labs(title = "Mobility at transit stations compared to baseline (based on Mobility Reports)") +
+  theme(
+    legend.position = c(0.85,0.9),
+    #legend.justification = c(1,1),
+    legend.box.just = "right",
+    legend.text = element_text(size = 30),
+    legend.title = element_blank(),
+    plot.title = element_text(size = 24),
+    axis.text.x = element_text(size = 16),
+    axis.text.y = element_text(size = 16),
+    axis.title.x = element_text(size = 18),
+    axis.title.y = element_text(size = 18)
+  ) 
+
+mobility_manaus %>%
+  filter(mobility == "mean") %>%
+  ggplot(aes(x=date, y=changes)) +
+  geom_line(color = "#00B0F6", size = 2) + 
+  geom_point(color = "black",size = 2) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b \n %y") + 
+  scale_y_continuous(breaks = seq(-100,100, by = 10),labels = function(x) paste0(x, "%")) +
+  theme_bw() +
+  ylab("Mobility compared to baseline") +
+  xlab("") +
+  labs(title = "Mean Mobility compared to baseline (based on Mobility Reports)") +
+  theme(
+    legend.position = c(0.85,0.9),
+    #legend.justification = c(1,1),
+    legend.box.just = "right",
+    legend.text = element_text(size = 30),
+    legend.title = element_blank(),
+    plot.title = element_text(size = 24),
+    axis.text.x = element_text(size = 16),
+    axis.text.y = element_text(size = 16),
+    axis.title.x = element_text(size = 18),
+    axis.title.y = element_text(size = 18)
+  ) 
+```
+
+
+```{r, fig.width = 14}
+mobility_manaus %>%
+  ggplot(aes(x=date, y=rolling_mean, color = mobility, legend = FALSE)) +
+  geom_line() + 
+  geom_point() +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b \n %y") + 
+  scale_y_continuous(breaks = seq(-100,100, by = 10),labels = function(x) paste0(x, "%")) +
+  theme_bw() +
+  ylab("Mobility compared to baseline") +
+  xlab("") +
+  labs(title = "Mobility compared to baseline (based on Mobility Reports)") +
+  facet_wrap(~mobility) + 
+    theme(
+        legend.position = "none", 
+        plot.title = element_text(size = 24),
+        #axis.text.x = element_text(size = 16),
+        #axis.text.y = element_text(size = 16),
+        axis.title.x = element_text(size = 18),
+        axis.title.y = element_text(size = 18),
+        strip.text = element_text(size = 18))
+
+mobility_manaus %>%
+  filter(mobility == "transit_stations") %>%
+  ggplot(aes(x=date)) +
+  geom_line(aes(y= changes),color = "#00B0F6", size = 2, alpha = 0.4) + 
+  geom_line(aes(y= rolling_mean),color = "#00B0F6", size = 2) + 
+  geom_point(aes(y=changes),color = "black",size = 2) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b \n %y") + 
+  scale_y_continuous(breaks = seq(-100,100, by = 10),labels = function(x) paste0(x, "%")) +
+  theme_bw() +
+  ylab("Mobility compared to baseline") +
+  xlab("") +
+  labs(title = "Mobility at transit stations compared to baseline (based on Mobility Reports)") +
+  theme(
+    legend.position = c(0.85,0.9),
+    #legend.justification = c(1,1),
+    legend.box.just = "right",
+    legend.text = element_text(size = 30),
+    legend.title = element_blank(),
+    plot.title = element_text(size = 24),
+    axis.text.x = element_text(size = 16),
+    axis.text.y = element_text(size = 16),
+    axis.title.x = element_text(size = 18),
+    axis.title.y = element_text(size = 18)
+  ) 
+```
+
+```{r}
+mobility_manaus
+```
+
+
+#### Brazil
+```{r, fig.width=28}
+mobility_brazil_grouped <- mobility_brazil %>%
+  select(date, sub_region_1, sub_region_2, contains("baseline")) %>%
+  pivot_longer(
+    cols = c(contains("baseline")),
+    names_to = "mobility",
+    values_to = "change"
+  ) %>%
+  extract("mobility", 
+          into = "mobility", 
+          regex = "(.+)_percent_change_from_baseline", 
+          convert = TRUE) %>%
+  mutate(group = case_when(
+    sub_region_1 %in% unique(sub_region_1)[1:9] ~ "Group 1",
+    sub_region_1 %in% unique(sub_region_1)[10:18] ~ "Group 2",
+    sub_region_1 %in% unique(sub_region_1)[19:26] ~ "Group 3"
+  )) %>%
+  filter(
+    !is.na(sub_region_1),
+    !is.na(sub_region_2)
+  )
+
+
+mobility_brazil_grouped %>%
+  filter(mobility == "transit_stations",
+         group =="Group 1",
+         date <= set_end_date) %>%
+  ggplot(aes(x=date, y=change)) +
+  geom_line(aes(color = interaction(sub_region_1, sub_region_2)), size = 2, show.legend = FALSE) +
+  facet_wrap(~sub_region_1) +
+  theme_bw()
+
+mobility_brazil_grouped %>%
+  filter(mobility == "transit_stations",
+         group =="Group 2",
+         date <= set_end_date) %>%
+  ggplot(aes(x=date, y=change)) +
+  geom_line(aes(color = interaction(sub_region_1, sub_region_2)), size = 2, show.legend = FALSE) +
+  facet_wrap(~sub_region_1) +
+  theme_bw()
+
+mobility_brazil_grouped %>%
+  filter(mobility == "transit_stations",
+         group =="Group 3",
+         date <= set_end_date) %>%
+  ggplot(aes(x=date, y=change)) +
+  geom_line(aes(color = interaction(sub_region_1, sub_region_2)), size = 2, show.legend = FALSE) +
+  facet_wrap(~sub_region_1) +
+  theme_bw()
+```
+
+### Stringency Index
+```{r}
+data_OSI <- read.csv(file = "data/OxCGRT_raw_BRA_v1.csv") %>%
+  filter(CityName == "Manaus") %>%
+  mutate(date = as.Date(as.character(Date), format = "%Y%m%d"),
+         StringencyIndex = StringencyIndex_SimpleAverage,
+         ContainmentIndex = ContainmentHealthIndex_SimpleAverage) %>%
+ select(date, StringencyIndex, ContainmentIndex)
+
+data_OSI
+```
+
+```{r}
+data_OSI %>% 
+  filter(date <= as.Date("2021-03-01")) %>%
+  ggplot(aes(x = date)) +
+  geom_line(aes(y = StringencyIndex), color = "blue", size= 2) +
+  geom_line(aes(y = ContainmentIndex), color = "red", size=2) +
+  theme_bw() +
+    theme(
+    legend.position = c(0.85,0.9),
+    #legend.justification = c(1,1),
+    legend.box.just = "right",
+    legend.text = element_text(size = 30),
+    legend.title = element_blank(),
+    plot.title = element_text(size = 24),
+    axis.text.x = element_text(size = 16),
+    axis.text.y = element_text(size = 16),
+    axis.title.x = element_text(size = 18),
+    axis.title.y = element_text(size = 18)
+  ) 
+```

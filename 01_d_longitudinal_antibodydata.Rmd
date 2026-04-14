@@ -1,0 +1,686 @@
+```{r}
+library(ggplot2)
+library(tidyverse)
+get("select", envir = asNamespace("dplyr"))
+```
+
+
+```{r}
+df <- read_csv("~/BIBC/General Research Profile/localrepo/GRP/data/repeat_blood_donors.csv")
+df 
+thr <- 0.49
+```
+
+```{r}
+df$donation_date <- as.Date(paste0(df$donyr, "-", df$donmo, "-", df$donda))
+df <- df %>% filter(covid_result != "", assay != "COV-2IgGII")
+df$result <- as.numeric(sapply(str_split(df$covid_result, pattern = " "), function(x) x[1]))
+df <- df %>% group_by(donorid) %>% arrange(donation_date) %>%
+  mutate(next_result = lead(result), next_date = lead(donation_date), halflife = -log(2)*as.numeric(next_date - donation_date)/(log(next_result) - log(result)))
+df
+```
+
+```{r}
+resmax_repeat <- df %>% filter(result >= thr, donation_date <= as.Date("2020-05-31")) %>% group_by(donorid) %>% summarise(result_max = max(result)) %>% .$result_max
+HL_repeat <- df %>% filter(result >= thr, !is.na(halflife), halflife > 0) %>% .$halflife
+```
+
+#plot
+```{r}
+dfplot <- rbind(
+  data.frame(var = "Peak S/C", val = resmax_repeat, type = "Repeat Donors"),
+                data.frame(var = "Half-life (days)", val = HL_repeat, type = "Repeat Donors")
+                )
+
+dfplot
+```
+
+
+```{r}
+ggplot(dfplot %>% filter(var == "Half-life (days)", type == "Repeat Donors"), aes(x = val, fill = type)) + 
+  geom_histogram(alpha = 1, aes(y = ..density..), binwidth = 5) + 
+  geom_density(alpha = 0.3, n = 2^15) + 
+  facet_grid(type ~ var, scales = "free") +
+  geom_boxplot(aes(x = val, y = 0), width = 0.001, outlier.shape = NA) + 
+  coord_cartesian(xlim = c(0, 365)) + theme_bw() #+ scale_fill_manual(values = mypalette) + 
+  theme(legend.position = "none", strip.background = element_rect(fill="#f1e1ab")) + labs(x = "", y = "")
+```
+
+```{r}
+ggplot(dfplot %>% filter(var == "Peak S/C", type == "Repeat Donors"), aes(x = val, fill = type)) + 
+  geom_histogram(alpha = 1, aes(y = ..density..), binwidth = 0.5) + 
+  geom_density(alpha = 0.3, n = 2^15) + geom_boxplot(aes(x = val, y = 0), width = 0.01, outlier.shape = NA) + 
+  theme_bw() + #scale_fill_manual(values = mypalette[1]) + 
+  facet_grid(type ~ var, scales = "free") +
+  theme(legend.position = "none", strip.background = element_rect(fill="#f1e1ab")) + #labs(x = "", y = "") +
+  coord_cartesian(xlim = c(0, 10), ylim = c(0, 0.2))
+```
+
+## lineplot
+```{r}
+df <- df %>% group_by(donorid) %>% mutate(ndon = n())
+dfplot <- df %>% 
+  filter(ndon >= 2) %>% 
+  dplyr::select(donorid, donation_date, result) %>% 
+  mutate(type = "Repeat Blood Donors")
+
+ggplot(dfplot, aes(x = donation_date, y = result, group = donorid)) +
+  geom_line(lwd = 0.5, alpha = 0.1) + 
+  geom_hline(yintercept = thr) + 
+  geom_hline(yintercept = 0.49, linetype = 'dashed') +  
+  geom_point(aes(colour = (result >= thr)), size = 1, alpha = 0.5) +
+  facet_wrap(~ type, nrow = 2, ncol = 1) + 
+  labs(x = "Donation Date", y = "Signal-to-cutoff (S/C)") + 
+  theme_bw() + 
+  scale_y_log10() +
+  #scale_colour_manual("", values = mypalette[5:6]) + 
+  theme(legend.position = "none",  strip.background = element_rect(fill="#f1e1ab"))
+```
+
+##time until seroreversion
+```{r}
+df <- df %>% group_by(donorid) %>%  mutate(resmax = max(result))
+dff <- df %>% filter(resmax >= thr) %>% group_by(donorid) %>% arrange(donation_date) %>% mutate(date_first = donation_date[which(result >= thr)[1]])
+dff <- dff %>% mutate(lag_first = as.numeric(donation_date - date_first)) %>% mutate(type = "Repeat whole blood donors") 
+dff
+```
+
+```{r, fig.width =14}
+lagmax <- dff %>%
+  filter(!is.na(lag_first)) %>% 
+  .$lag_first %>% max()
+
+ggplot(dff %>% filter(lag_first >= 0, type == "Repeat whole blood donors"), aes(x = lag_first, y = result, group = donorid)) + 
+  geom_line(alpha = 0.1, 
+            aes(colour = type)
+            ) + theme_bw() + labs(x = "Days from first positive sample", y = "Signal-to-cutoff (S/C)") +
+  scale_y_log10() + 
+  coord_cartesian(xlim = c(0, lagmax), ylim = c(0.01, 10)) +
+  geom_hline(yintercept = 1.4, linetype = 'solid') +
+  geom_hline(yintercept = 0.49, linetype = 'dashed')
+
+ggplot(dff %>% 
+         mutate(
+           AGE = age,
+           AGEGROUP = case_when(
+             (AGE >= 0 & AGE < 10) ~ agebin70_10y_levels[1],
+             (AGE >= 10 & AGE < 20) ~ agebin70_10y_levels[2],
+             (AGE >= 20 & AGE < 30) ~ agebin70_10y_levels[3],
+             (AGE >= 30 & AGE < 40) ~ agebin70_10y_levels[4],
+             (AGE >= 40 & AGE < 50) ~ agebin70_10y_levels[5],
+             (AGE >= 50 & AGE < 60) ~ agebin70_10y_levels[6],
+             (AGE >= 60 & AGE < 70) ~ agebin70_10y_levels[7],
+             AGE >= 70 ~ agebin70_10y_levels[8],
+             TRUE ~ NA),
+           AGEGROUP = as.factor(AGEGROUP)
+         ) %>% 
+         filter(lag_first >= 0, type == "Repeat whole blood donors", !is.na(AGEGROUP)), 
+       aes(x = lag_first, y = result, group = donorid)) + 
+  geom_line(alpha = 0.1, 
+            aes(colour = type)
+            ) + theme_bw() + labs(x = "Days from first positive sample", y = "Signal-to-cutoff (S/C)") +
+  scale_y_log10() + 
+  coord_cartesian(xlim = c(0, lagmax), ylim = c(0.01, 10)) +
+  geom_hline(yintercept = 1.4, linetype = 'solid') +
+  geom_hline(yintercept = 0.49, linetype = 'dashed') +
+  facet_wrap(~AGEGROUP)
+```
+
+#pneg
+##repeat_functions.R
+```{r}
+library(tidyverse)
+library(lubridate)
+
+compute.decay.rate <- function(df) #Estimates the decay rate for each donation from a repeat blood donor
+{
+  df$row_id <- 1:nrow(df)
+  df$next_id <- NA
+  for(i in 1:nrow(df))
+  {
+    dfs <- df %>% filter(donorid == df$donorid[i], donation_date > df$donation_date[i]) %>% arrange(donation_date)
+    if(nrow(dfs) > 0)
+      df$next_id[i] <- dfs$row_id[1]
+  }
+  
+  # --- decay rate --- #
+  df$decay_rate <- NA
+  for(i in 1:nrow(df))
+  {
+    if(!is.na(df$next_id[i]))
+      df$decay_rate[i] <- (log(df$result[df$next_id[i]]) - log(df$result[i]))/as.numeric(df$donation_date[df$next_id[i]] - df$donation_date[i])
+  }
+  return(df)
+}
+
+
+
+calculate.tts.coefs <- function(y, y0, tau, thr) #Calculates time to seroreversion
+{
+  a = (y-y0)/tau
+  return((thr - y0)/a)
+}
+
+
+calculate.seroreversion.date <- function(df, thr, median.halflife = FALSE)
+  #Calculates the date of seroreversion
+  #If median.halflife = TRUE, the median halflife for each donor will be used 
+  #in the exponential interpolation. In the paper, we use median.halflife = FALSE.
+{
+  df <- df %>% group_by(donorid) %>% mutate(result_max = max(result))
+  df <- df %>% filter(result_max >= thr)
+  
+  if(median.halflife)
+  {
+    dff <- df %>% mutate(halflife = -log(2)/decay_rate) %>% filter(!is.na(halflife), halflife > 0, result >= thr)
+    HLmed <- median(dff$halflife)
+    print(HLmed)
+  }
+  ids <- unique(df$donorid)
+  HL <- rep(NA, length(ids))
+  serorev_date <- rep(NA, length(ids))
+  serorev_date_lin <- rep(NA, length(ids))
+  halflife <- rep(NA, length(ids))
+  serorev_obs <- rep(NA, length(ids))
+  for(i in 1:length(ids))
+  {
+    print(paste0("Processing patient ", i, "/", length(ids)))
+    pat <- df %>% filter(donorid == ids[i]) %>% arrange(donation_date)
+    
+    kfirst <- which(pat$result >= thr)[1]
+    if(kfirst < nrow(pat)) {
+      klast <- tail(which(pat$result >= thr), 1)
+      kmax <- which(pat$result == max(pat$result))[1]
+      if(klast < nrow(pat))  #Seroreversion was observed!
+      {
+        ka <- klast
+        kb <- klast + 1
+        serorev_obs[i] <- TRUE
+      }
+      else {
+        ka <- klast - 1      #Seroreversion didn't happen yet
+        kb <- klast
+        serorev_obs[i] <- FALSE
+      }
+      
+      Dt <- as.numeric(pat$donation_date[kb] - pat$donation_date[ka])
+      Dy.exp <- (log(pat$result[kb]) - log(pat$result[ka]))
+      Dy.lin <- (pat$result[kb] - pat$result[ka])
+      
+      if(Dy.lin < 0) #In this case Dy.exp is also < 0 
+      {
+        if(median.halflife & (serorev_obs[i] == FALSE))
+        {
+          serorev_date[i] <- as.character(pat$donation_date[klast] + HLmed*(log(pat$result[klast]) - log(thr)))
+        } else {
+          serorev_date[i] <- as.character(pat$donation_date[ka] + (log(thr) - log(pat$result[ka]))*Dt/Dy.exp)
+        }
+        serorev_date_lin[i] <- as.character(pat$donation_date[ka] + (thr - pat$result[ka])*Dt/Dy.lin)
+        halflife[i] <- -log(2)*Dt/Dy.exp
+      }
+    }
+  
+  }
+  df <- left_join(df, data.frame(donorid = ids, serorev_date = as.Date(serorev_date), 
+                                 serorev_date_lin = as.Date(serorev_date_lin), 
+                                 halflife = halflife, serorev_obs = serorev_obs), 
+                  by = "donorid")
+  return(df)
+}
+```
+
+
+##estimate_ppos.R
+```{r}
+df <- read.csv("data/repeat_blood_donors.csv")
+df <- df %>% filter(covid_result != "", assay != "COV-2IgGII")
+df$donation_date <- as.Date(paste0(df$donyr, "-", df$donmo, "-", df$donda))
+df$result <- as.numeric(sapply(str_split(df$covid_result, pattern = " "), function(x) x[1]))
+
+for(i in 1:nrow(df))
+  df$result[i] <-  as.numeric(str_split(df$result[i], pattern = " ")[[1]][1])
+```
+
+
+```{r}
+thr <- 1.40
+
+df <- compute.decay.rate(df)
+df <- calculate.seroreversion.date(df, thr = thr)
+
+df <- df %>% group_by(donorid) %>% arrange(donation_date) %>% 
+  mutate(kfirst = which(result >= thr)[1], 
+         tinf.max = donation_date[kfirst],
+         tinf.min = as.Date(ifelse(kfirst == 1, "2020-03-01", as.character(donation_date[kfirst - 1]))),
+         ndon = n())
+
+df$age_bin <- cut(df$age, c(-1, 25, 35, 45, 55, 70))
+
+df <- df %>% 
+  ungroup() %>%
+  mutate(
+    AGE = age,
+    AGEGROUP = case_when(
+      (AGE >= 0 & AGE < 10) ~ agebin70_10y_levels[1],
+      (AGE >= 10 & AGE < 20) ~ agebin70_10y_levels[2],
+      (AGE >= 20 & AGE < 30) ~ agebin70_10y_levels[3],
+      (AGE >= 30 & AGE < 40) ~ agebin70_10y_levels[4],
+      (AGE >= 40 & AGE < 50) ~ agebin70_10y_levels[5],
+      (AGE >= 50 & AGE < 60) ~ agebin70_10y_levels[6],
+      (AGE >= 60 & AGE < 70) ~ agebin70_10y_levels[7],
+      AGE >= 70 ~ agebin70_10y_levels[8],
+      TRUE ~ NA),
+    AGEGROUP = as.factor(AGEGROUP)
+  ) 
+```
+
+
+```{r}
+donors.all <- df %>% group_by(donorid) %>% 
+  summarise(tinf.min = tinf.min[1], tinf.max = tinf.max[1])
+
+df <- df %>% filter(kfirst < ndon, !is.na(serorev_date)) %>% group_by(donorid) %>% arrange(donation_date) %>%
+  mutate(serorev_date_weibull = case_when(serorev_obs == FALSE ~ tail(donation_date, 1),
+                                          serorev_obs == TRUE  ~ tail(donation_date[result >= thr], 1)),
+         serorev_date_weibull_max = case_when(serorev_obs == FALSE ~ as.Date("2030-01-01"),
+                                              serorev_obs == TRUE ~  donation_date[tail(which(result >= thr),1)+1]))
+
+donors <- df %>% group_by(donorid) %>% 
+  summarise(serorev_date = serorev_date[1], tinf.min = tinf.min[1], tinf.max = tinf.max[1],
+            serorev_obs = serorev_obs[1], serorev_date_weibull = serorev_date_weibull[1],
+            serorev_date_weibull_max = serorev_date_weibull_max[1])
+
+
+
+dates <- seq(as.Date("2020-03-01"), as.Date("2021-03-31"), by = "day")
+ptinf <- rep(0, length(dates))
+for(i in 1:nrow(donors))
+{
+  ptinf <- ptinf + as.numeric(dates == donors.all$tinf.max[i])
+}
+ptinf <- ptinf/nrow(donors.all)
+ptinf <- rollmean(ptinf, 30, align = "center")
+```
+
+
+```{r}
+Ns <- 1000
+tts.exp <- matrix(data = 0, nrow = nrow(donors), ncol = Ns)
+tts.deaths <- matrix(data = 0, nrow = nrow(donors), ncol = Ns)
+
+for(i in 1:nrow(donors))
+{
+  datesi <- seq(1+donors$tinf.min[i], donors$tinf.max[i], by = "day") %>% as.character()
+  i1 <- which(dates == 1+donors$tinf.min[i])[1]
+  i2 <- which(dates == donors$tinf.max[i])[1]
+  tinfi <- sample(datesi, size = Ns, replace = TRUE, prob = ptinf[i1:i2])
+  tts.exp[i,] <- donors$serorev_date[i] - as.Date(tinfi)
+  #tinfi <- sample(datesi, size = Ns, replace = TRUE, prob = ptinf_deaths[i1:i2])
+  #tts.deaths[i,] <- donors$serorev_date[i] - as.Date(tinfi)
+}
+
+tts.exp <- as.vector(tts.exp)
+#tts.deaths <- as.vector(tts.deaths)
+
+# --- Convert the observed times to seroreversion into a probability distribution --- #
+
+ptts.exp <- rep(0, 106)
+
+for(m in 1:106) {
+  for(i in 1:7){
+    for(j in (7*m + 1:7)) {
+      if(j > i) {
+        ptts.exp[m] <- ptts.exp[m] + sum(tts.exp == (j-i))
+      }
+    }
+  }
+}
+
+ptts.exp <- ptts.exp/sum(ptts.exp)
+
+ppos_rep <- c(1, 1 - cumsum(ptts.exp))
+
+dfplot <- data.frame(date = seq(0, 720, 7), ppos = ppos_rep[1:103], type = "Repeat Donors")
+
+ggplot(dfplot, aes(x = date, y = ppos, color = type)) + 
+  geom_line(size = 1) + geom_point(size = 3) + theme_bw() +
+  scale_color_discrete("") + 
+  labs(x = "Days from first positive sample", y = "Probability of positive test") + 
+  scale_x_continuous(breaks=seq(0, 720, 30)) + theme(legend.position = "top", legend.box = "horizontal", legend.direction = "vertical")
+
+#write.csv(dfplot, "data/ppos_week.csv")
+```
+
+
+```{r, fig.width=14}
+dfplot <- data.frame(date = seq(0, 720, 7), pneg = c(0, -diff(ppos_rep[1:103])), type = "Repeat Donors")
+
+ggplot(dfplot, aes(x = date, y = pneg, color = type)) + 
+  geom_line(size = 1) + 
+  geom_point(size = 3) + 
+  theme_bw() + 
+  scale_color_discrete("") + 
+  labs(x = "Days from reference date", 
+       y = "Probability of seroreversion given positivity at reference date") + 
+  scale_x_continuous(breaks=seq(0, 720, 30))
+```
+
+```{r}
+Ns <- 1E5
+pneg_df <- dfplot %>% group_by(type) %>% 
+  summarise(S = sample(date, Ns, replace = TRUE, prob = pneg))
+
+pneg_df
+```
+
+```{r}
+ggplot(pneg_df, aes(y = type, x = S, fill = type)) + 
+  geom_boxplot(outlier.shape = NA) +
+  theme_bw() + 
+  #scale_fill_manual(values = mypalette[1:2]) + 
+  labs(x = "Interval between seroconversion and seroreversion", y = "") +
+  theme(legend.position = "none")
+```
+
+```{r}
+ggplot(pneg_df, aes(x = S, fill = type)) + 
+  geom_histogram(binwidth = 7, alpha = 0.7) +
+  theme_bw() + 
+  #scale_fill_manual(values = mypalette[1:2]) + 
+  labs(x = "Interval between seroconversion and seroreversion", y = "") +
+  theme(legend.position = "none") +
+  theme_bw()
+```
+
+```{r}
+ggplot(pneg_df, aes(x = 1/S, fill = type)) + 
+  geom_histogram(binwidth = 1/750, alpha = 0.7) +
+  theme_bw() + 
+  #scale_fill_manual(values = mypalette[1:2]) + 
+  labs(x = "Interval between seroconversion and seroreversion", y = "") +
+  theme(legend.position = "none") +
+  scale_x_continuous(limits = c(0,0.05)) +
+  theme_bw()
+```
+
+
+## fit parameters
+```{r}
+library(extraDistr)
+library(flexsurv)
+library(fitdistrplus)
+```
+
+### gamma
+```{r}
+samples <- pneg_df$S
+
+mean_w <- mean(samples)
+var_w <- var(samples)
+
+alpha <- (mean_w^2) / var_w
+beta <- mean_w / var_w
+```
+
+
+```{r}
+fit_gamma <- fitdist(pneg_df$S, "gamma")
+s_sim_gamma <- rgamma(Ns,
+                      shape = fit_gamma$estimate["shape"],
+                      rate = fit_gamma$estimate["rate"])
+```
+
+```{r}
+ggplot() +
+  geom_histogram(data = pneg_df, aes(x = S, y = ..density..),
+                 binwidth = 7, fill = "gray", color = "black", alpha = 0.5) +
+  geom_density(data = data.frame(S = s_sim_gamma), aes(x = S, color="gamma"),
+               size = 1.2) +
+  theme_bw() +
+  scale_x_continuous(limits = c(0, 500)) +
+  scale_color_manual(
+    values = c(
+      "gamma" = "orange"
+    )
+  ) +
+  
+  labs(
+    x = "Interval between seroconversion and seroreversion (days)",
+    y = "Density",
+    title = "Log-normal (green) vs Inverse Gamma (red dashed) Fit"
+  )
+```
+
+```{r}
+q_gamma <- qgamma(c(0.025, 0.975), shape = 2.40, rate = 0.0153)
+q_gamma
+```
+
+
+### inverse gamma
+```{r}
+pneg_df
+
+samples <- 1 / pneg_df$S
+
+mean_w <- mean(samples)
+var_w <- var(samples)
+
+alpha <- 2 + (mean_w^2 / var_w)
+beta <- (alpha - 1) * mean_w
+```
+
+```{r}
+dinvgamma_s <- function(s, alpha, beta) {
+  ifelse(s > 0,
+         (beta^alpha / gamma(alpha)) * s^(-alpha - 3) * exp(-beta / s),
+         0)
+}
+```
+
+```{r}
+s_sim <- rinvgamma(Ns, alpha, beta)  # w ~ InvGamma(alpha, beta)
+```
+
+```{r}
+q_invgamma <- qinvgamma(c(0.025, 0.975), alpha = alpha,beta = beta)
+q_invgamma
+```
+
+```{r}
+ggplot() +
+  geom_histogram(data = pneg_df, aes(x = 1/S, y = ..density..),
+                 binwidth = 1/750,
+                  fill = "lightblue", color = "black", alpha = 0.6) +
+  geom_density(data = data.frame(S = s_sim), aes(x = S),
+               color = "red", size = 1.2) +
+  theme_bw() +
+  scale_x_continuous(limits = c(0,0.05)) +
+  labs(
+    x = "Interval between seroconversion and 1.4 S/C (days)",
+    y = "Density",
+    title = ""
+  ) +
+  geom_vline(xintercept = q_invgamma, linewidth = 1, linetype = "dashed")
+```
+
+### lognorm
+```{r}
+library(fitdistrplus)
+library(dplyr)
+fit_lognorm <- fitdist(pneg_df$S, "lnorm")
+summary(fit_lognorm)
+```
+
+```{r}
+s_sim_lognorm <- rlnorm(Ns,
+                        meanlog = fit_lognorm$estimate["meanlog"],
+                        sdlog = fit_lognorm$estimate["sdlog"])
+
+ggplot() +
+  geom_histogram(data = pneg_df, aes(x = S, y = ..density..),
+                 binwidth = 7, fill = "lightblue", color = "black", alpha = 0.6) +
+  geom_density(data = data.frame(S = s_sim_lognorm), aes(x = S),
+               color = "darkgreen", size = 1.2) +
+  theme_bw() +
+  scale_x_continuous(limits = c(0, 500)) +
+  labs(
+    x = "Interval between seroconversion and seroreversion (days)",
+    y = "Density",
+    title = "Empirical vs Fitted Log-normal Distribution"
+  )
+```
+
+```{r}
+ggplot() +
+  geom_histogram(data = pneg_df, aes(x = S, y = ..density..),
+                 binwidth = 7, fill = "lightblue", color = "black", alpha = 0.5) +
+  geom_density(data = data.frame(S = s_sim_lognorm), aes(x = S, color = "lognormal"),
+               size = 1.2) +
+  geom_density(data = data.frame(S = s_sim), aes(x = S, color="inverse gamma"),
+               size = 1.2, linetype = "dashed") +
+  theme_bw() +
+  scale_x_continuous(limits = c(0, 500)) +
+  scale_color_manual(values = c("lognormal" = "darkgreen", "inverse gamma" = "red")) +
+  labs(
+    x = "Interval between seroconversion and seroreversion (days)",
+    y = "Density",
+    title = "Log-normal (green) vs Inverse Gamma (red dashed) Fit"
+  )
+```
+
+### gamma
+```{r}
+fit_gamma <- fitdist(pneg_df$S, "gamma")
+s_sim_gamma <- rgamma(Ns,
+                      shape = fit_gamma$estimate["shape"],
+                      rate = fit_gamma$estimate["rate"])
+```
+
+```{r}
+ggplot() +
+  geom_histogram(data = pneg_df, aes(x = S, y = ..density..),
+                 binwidth = 7, fill = "gray", color = "black", alpha = 0.5) +
+  geom_density(data = data.frame(S = s_sim_lognorm), aes(x = S, color = "lognormal"),
+               size = 1.2) +
+  geom_density(data = data.frame(S = s_sim), aes(x = S, color="inverse gamma"),
+               size = 1.2) +
+  geom_density(data = data.frame(S = s_sim_gamma), aes(x = S, color="gamma"),
+               size = 1.2) +
+  theme_bw() +
+  scale_x_continuous(limits = c(0, 500)) +
+  scale_color_manual(
+    values = c(
+      "lognormal" = "darkgreen",
+      "inverse gamma" = "red",
+      "gamma" = "orange"
+    )
+  ) +
+  
+  labs(
+    x = "Interval between seroconversion and seroreversion (days)",
+    y = "Density",
+    title = "Log-normal (green) vs Inverse Gamma (red dashed) Fit"
+  )
+```
+
+
+### weibull
+```{r}
+fit_weibull <- fitdist(pneg_df$S, "weibull")
+s_sim_weibull <- rweibull(Ns, 
+                          shape = fit_weibull$estimate["shape"],
+                          scale = fit_weibull$estimate["scale"])
+```
+
+```{r}
+ggplot() +
+  geom_histogram(data = pneg_df, aes(x = S, y = ..density..),
+                 binwidth = 7, fill = "gray", color = "black", alpha = 0.5) +
+  geom_density(data = data.frame(S = s_sim_lognorm), aes(x = S, color = "lognormal"),
+               size = 1.2) +
+  geom_density(data = data.frame(S = s_sim), aes(x = S, color="inverse gamma"),
+               size = 1.2) +
+    geom_density(data = data.frame(S = s_sim_weibull), aes(x = S, color = "Weibull"),
+               size = 1.2) +
+    geom_density(data = data.frame(S = s_sim_gamma), aes(x = S, color="gamma"),
+               size = 1.2) +
+  theme_bw() +
+  scale_x_continuous(limits = c(0, 500)) +
+  scale_color_manual(
+    values = c(
+      "lognormal" = "darkgreen",
+      "inverse gamma" = "red",
+      "Weibull" = "blue",
+      "gamma" = "orange"
+    )
+  ) +
+
+  labs(
+    x = "Interval between seroconversion and negative test (1.4 S/C) (days)",
+    y = "Density",
+    title = "Log-normal (green) vs Inverse Gamma (red dashed) Fit"
+  )
+```
+
+### generalized gamma
+```{r}
+library(flexsurv)
+fit_gg <- flexsurvreg(Surv(S) ~ 1, data = pneg_df, dist = "gengamma")
+
+# Simulate from the fitted model
+s_sim_gg <- rgengamma(Ns,
+                      mu = fit_gg$res[1, "est"],
+                      sigma = fit_gg$res[2, "est"],
+                      Q = fit_gg$res[3, "est"])
+```
+
+```{r}
+ggplot() +
+  geom_histogram(data = pneg_df, aes(x = S, y = ..density..),
+                 binwidth = 7, fill = "gray", color = "black", alpha = 0.5) +
+  geom_density(data = data.frame(S = s_sim_lognorm), aes(x = S, color = "lognormal"),
+               size = 1.2) +
+  geom_density(data = data.frame(S = s_sim), aes(x = S, color="inverse gamma"),
+               size = 1.2) +
+    geom_density(data = data.frame(S = s_sim_weibull), aes(x = S, color = "Weibull"),
+               size = 1.2) +
+    geom_density(data = data.frame(S = s_sim_gamma), aes(x = S, color="gamma"),
+               size = 1.2) +
+    geom_density(data = data.frame(S = s_sim_gg), aes(x = S, color="generalized gamma"),
+               size = 1.2) +
+  theme_bw() +
+  scale_x_continuous(limits = c(0, 500), expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+  scale_color_manual(
+    values = c(
+      "lognormal" = "darkgreen",
+      "inverse gamma" = "red",
+      "Weibull" = "blue",
+      "gamma" = "orange",
+      "generalized gamma" = "cyan"
+    )
+  ) +
+
+  labs(
+    x = "Interval between seroconversion and 1.4 S/C (days)",
+    y = "Density",
+    title = ""
+  )
+```
+
+```{r}
+aic_values <- data.frame(
+  Distribution = c("Lognormal", "Gamma", "Weibull", "Generalized Gamma"),
+  AIC = c(
+    fit_lognorm$aic,
+    fit_gamma$aic,
+    fit_weibull$aic,
+    fit_gg$AIC,
+    fit$aic
+  )
+)
+
+aic_values[order(aic_values$AIC), ]
+```
+

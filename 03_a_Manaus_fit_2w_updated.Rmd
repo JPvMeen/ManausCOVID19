@@ -1,0 +1,1009 @@
+---
+author: "Jan Paul van Meenen"
+---
+
+#Manaus 
+## Packages 
+
+```{r}
+library(cmdstanr)
+cmdstanr::register_knitr_engine(override = FALSE)
+library(posterior)
+library(bayesplot)
+library(tidyverse)
+library(ggplot2)
+```
+
+```{r}
+set_cmdstan_path(path = "C:/Users/JanPaul/Documents/.cmdstan/cmdstan-2.33.1")
+```
+
+```{r}
+agebin70_10y_levels <- c(paste0("[", seq(0, 60, by = 10), ",", seq(10, 70, by = 10), ")"), "70+")
+```
+
+
+# Fit
+```{r, best fit} 
+manaus_model_2w_updated <- cmdstan_model("job/stan/manaus_2w_updated_s1re_strainfreq_RK_NB_survey.stan") 
+manaus_2w_updated_draws_df <- readRDS("job/output/manaus_2w_updated_s1re_strainfreq_RK_NB_survey")  
+```
+
+## parms
+```{r}
+names(manaus_model_2w_updated$variables()$parameters)
+names(manaus_model_2w_updated$variables()$transformed_parameters)
+names(manaus_model_2w_updated$variables()$generated_quantities)
+
+pars <- c(names(manaus_model_2w_updated$variables()$parameters))
+
+pars_all <- c(names(manaus_model_2w_updated$variables()$parameters), 
+                   names(manaus_model_2w_updated$variables()$transformed_parameters),
+                   names(manaus_model_2w_updated$variables()$generated_quantities)
+              )
+
+pars_all
+              
+pars_interest <- c(pars, 
+                   names(manaus_model_2w_updated$variables()$transformed_parameters)[c(1,2,4:16)],
+                   names(manaus_model_2w_updated$variables()$generated_quantities[3:6])
+                   )
+
+simstates <- c("Susceptible","Infected1", "Infected1_re","Recovered1", "Waned1", "Infected2", "Infected2_re", "Recovered2", "Waned2", "total_N")
+```
+
+
+
+```{r fig.width=28, message=FALSE}
+manaus_2w_updated_draws_df %>% 
+  select(one_of(c(pars,".chain","lp__"))) %>%
+  mutate(.chain = as.factor(.chain)) %>%
+  ggpairs(
+    columns = setdiff(pars, "log10_ifr1_intercept"),
+    aes(colour=as.factor(.chain), alpha=0.1)) +
+  theme_minimal(base_size=15) +
+  theme(
+    panel.grid.major = element_blank(), 
+    panel.grid.minor = element_blank()
+  )
+```
+
+```{r fig.width=14, message=FALSE}
+plot_2parmcor <- function(data, par1, par2 = NULL, parcolor = ".chain") {
+  
+  # Ensure parcolor is factor
+  data <- data %>% mutate("{parcolor}" := as.factor(.data[[parcolor]]))
+  
+  # Top density for par1 
+  p1 <- ggplot(data, aes(x = .data[[par1]], color = .data[[parcolor]], fill = .data[[parcolor]])) +
+    geom_density(alpha = 0.5) +
+    scale_y_continuous(limits = c(0,NA), expand = c(0,0)) +
+    theme_minimal() +
+    theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          axis.text.x = element_blank(),
+          axis.title.x = element_blank(),
+          axis.ticks.x = element_blank(),
+          axis.line.x = element_blank(),   
+          legend.position = "none",
+          plot.margin = margin(0, 0, 0, 0, "cm")
+          )
+  
+  # Empty top-right corner with legend
+  p2 <- ggplot(data, aes(x = 1,y=1, color = .data[[parcolor]], fill = .data[[parcolor]])) +
+    geom_point(alpha = 0) +  # invisible points just to trigger legend
+    theme_void() +
+    guides(color = guide_legend(override.aes = list(size = 5, alpha = 1))) +
+    theme(
+      plot.background = element_rect(fill = "white", colour = NA),
+      legend.position = c(0.5,0.5)
+    )
+  
+  if (!is.null(par2)) {
+    # Center scatter
+    p3 <- ggplot(data, aes(x = .data[[par1]], y = .data[[par2]], color = .data[[parcolor]], fill = .data[[parcolor]])) +
+      geom_point() +
+      theme_minimal() +
+      #scale_x_continuous(expand = c(0,0)) + 
+      #scale_y_continuous(expand = c(0,0)) + 
+      theme(panel.grid.major = element_blank(),
+            panel.grid.minor = element_blank(),
+            legend.position = "none",
+            plot.margin = margin(0, 0, 0, 0, "cm")
+            )
+    
+    # Right density for par2
+    p4 <- ggplot(data, aes(x = .data[[par2]], color = .data[[parcolor]], fill = .data[[parcolor]])) +
+      geom_density(alpha = 0.5) +
+      theme_minimal() +
+      theme(panel.grid.major = element_blank(),
+            panel.grid.minor = element_blank(),
+            axis.text.y = element_blank(),
+            axis.title.y = element_blank(),
+            axis.ticks.y = element_blank(),
+            axis.line.y = element_blank(),   
+            legend.position = "none",
+            plot.margin = margin(0, 0, 0, 0, "cm")
+            ) +
+      scale_y_continuous(limits = c(0,NA), expand = c(0,0)) +
+      coord_flip() 
+  } else {
+    p3 <- p2
+    p4 <- p2
+  }
+  
+  # Combine with cowplot
+  plot_grid(
+    p1, p2,
+    p3, p4,
+    nrow = 2, ncol = 2,
+    rel_widths = c(2, 0.5),
+    rel_heights = c(0.5, 2)
+  )
+}
+
+plot_2parmcor(
+  data = manaus_2w_updated_draws_df, 
+  par1 = "beta2", 
+  par2 = "scalar_beta2_re", 
+  parcolor = ".chain"
+)
+```
+
+
+
+```{r}
+manaus_2w_updated_draws_df %>%
+  dplyr::select(dplyr::any_of(c(pars, ".chain", ".iteration"))) %>%
+  as_draws_array() %>%
+  summarise_draws(rhat)
+```
+
+
+```{r}
+manaus_2w_updated_draws_df %>% 
+  select(one_of(c(pars,".chain"))) %>%
+  mutate(.chain = as.factor(.chain)) %>%
+  group_by(.chain) %>%
+  summarise(across(everything(), ~ median(.), .names = "{col}"))
+
+manaus_2w_updated_draws_df %>% 
+  select(one_of(c(pars_interest,".chain","log10_ifr1_intercept"))) %>%
+  select(-".chain") %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "param",
+    values_to = "value"
+  ) %>%
+  group_by( param) %>%
+  summarise(
+    median = median(value),
+    lower  = quantile(value, 0.025),
+    upper  = quantile(value, 0.975),
+    .groups = "drop"
+  )
+```
+
+```{r}
+manaus_2w_updated_draws_df %>%
+  slice_max(lp__, n = 1) %>%
+  select(one_of(c(pars))) %>%
+  mutate(waning_time = 100 / w_raw)
+```
+
+
+## beta
+```{r, fig.width=14}
+beta_manaus_2w_updated_draws_df <- manaus_2w_updated_draws_df %>%
+  select(.chain, matches("^beta")) %>%
+  mutate(simulation = row_number(),
+         .chain = as.factor(.chain)) %>%
+  pivot_longer(cols = matches("^beta"),
+               names_to = "parameter",
+               values_to = "value") 
+
+
+
+
+beta_manaus_2w_updated_draws_df %>%
+  ggplot() +
+  geom_density(aes(x=value, fill = parameter, color=.chain), alpha = 0.2) +
+  scale_x_continuous(
+    limits = c(
+      min(range(beta_manaus_2w_updated_draws_df$value, na.rm = TRUE))-0.01,                       max(range(beta_manaus_2w_updated_draws_df$value, na.rm = TRUE))+0.01
+    )
+  ) +
+  theme_bw()
+```
+
+## ifr
+```{r}
+ifr_manaus_2w_updated_draws_df <- manaus_2w_updated_draws_df %>%
+  select(matches("^ifr")) %>%
+  mutate(simulation = row_number()) %>%
+  pivot_longer(cols = matches("^ifr"), 
+               names_to = c("parameter[AGEGROUP]")) %>%
+  extract("parameter[AGEGROUP]", 
+          into = c("parameter","AGEGROUP"), 
+          regex = "(.+)\\[(\\d+)]", 
+          convert = TRUE) %>%
+  mutate(
+    AGEGROUP = case_when(
+      AGEGROUP == 1 ~ agebin70_10y_levels[1],
+      AGEGROUP == 2 ~ agebin70_10y_levels[2],
+      AGEGROUP == 3 ~ agebin70_10y_levels[3],
+      AGEGROUP == 4 ~ agebin70_10y_levels[4],
+      AGEGROUP == 5 ~ agebin70_10y_levels[5],
+      AGEGROUP == 6 ~ agebin70_10y_levels[6],
+      AGEGROUP == 7 ~ agebin70_10y_levels[7],
+      AGEGROUP == 8 ~ agebin70_10y_levels[8]),
+    AGEGROUP = factor(AGEGROUP, levels = agebin70_10y_levels),
+  ) 
+
+ifr_manaus_2w_updated_draws_df
+
+```
+
+
+```{r, fig.width=14}
+ifr_manaus_2w_updated_draws_df <- manaus_2w_updated_draws_df %>%
+  select(matches("^ifr")) %>%
+  mutate(simulation = row_number()) %>%
+  pivot_longer(cols = matches("^ifr"), 
+               names_to = c("parameter[AGEGROUP]")) %>%
+  extract("parameter[AGEGROUP]", 
+          into = c("parameter","AGEGROUP"), 
+          regex = "(.+)\\[(\\d+)]", 
+          convert = TRUE) %>%
+  mutate(
+    AGEGROUP = case_when(
+      AGEGROUP == 1 ~ agebin70_10y_levels[1],
+      AGEGROUP == 2 ~ agebin70_10y_levels[2],
+      AGEGROUP == 3 ~ agebin70_10y_levels[3],
+      AGEGROUP == 4 ~ agebin70_10y_levels[4],
+      AGEGROUP == 5 ~ agebin70_10y_levels[5],
+      AGEGROUP == 6 ~ agebin70_10y_levels[6],
+      AGEGROUP == 7 ~ agebin70_10y_levels[7],
+      AGEGROUP == 8 ~ agebin70_10y_levels[8]),
+    AGEGROUP = factor(AGEGROUP, levels = agebin70_10y_levels),
+  ) 
+
+ifr_manaus_2w_updated_draws_df %>%
+  ggplot(aes(x=AGEGROUP)) +
+  geom_line(aes(y=value, group = interaction(simulation,parameter), colour = parameter), alpha = 0.1) +
+  labs(x = "Agegroup", y = "Predicted ifr") +
+  theme_bw()
+
+ifr_manaus_2w_updated_draws_df %>%
+  ggplot(aes(x=AGEGROUP)) +
+  geom_line(aes(y=value, group = interaction(simulation, parameter), colour = parameter), alpha = 0.05) +
+  labs(x = "Agegroup", y = "Predicted ifr") +
+  scale_y_log10(breaks = c(1e-7,1e-6,1e-5,1e-4,1e-3,1e-2, 0.05, 1e-1, 0.15, 0.20)) +
+  theme_bw() + 
+  labs(x = "Agegroup", y = "Predicted ifr") +
+  #labs(title = "Monthly antibody signal-to-cutoff (S/C) reading") +
+  guides(colour = guide_legend(override.aes = list(alpha = 1, size = 5))
+         ) +
+  theme(
+    legend.text = element_text(size = 18),
+    legend.title = element_blank(),
+    legend.position = c(0.01,1),
+    legend.justification = c("left", "top"),
+    legend.background = element_blank(),
+    axis.text.x = element_text(size = 18),
+    axis.text.y = element_text(size = 18),
+    axis.title.x = element_text(size = 18),
+    axis.title.y = element_text(size = 18),
+    axis.ticks = element_line(colour = "black", size = 2,),
+    axis.ticks.length = unit(3, "mm"),
+    axis.line = element_line(colour = "black", size = 1),
+    panel.border = element_blank(),
+    plot.margin = margin(1, 1, 0, 2, "cm")
+    )
+  
+```
+
+```{r}
+agebin70_10y_levels
+```
+
+
+## states
+### Hospdeaths
+```{r}
+manaus_2w_simp_hospdeaths_predictions <- manaus_2w_updated_draws_df %>%
+  select(matches("^simulated_hospdeaths|^expected_hospdeaths")) %>%
+  summarise(across(everything(), list(q05 = ~quantile(., 0.025, na.rm = TRUE), 
+                                      q50 = ~quantile(., 0.50, na.rm = TRUE), 
+                                      q95 = ~quantile(., 0.975, na.rm = TRUE)
+                                      )
+                   )
+            ) %>%
+  pivot_longer(cols = everything(), 
+               names_to = c("state[time,AGEGROUP]",".value"), 
+               names_pattern = "(.+)_(q.+)") %>%
+  extract("state[time,AGEGROUP]", 
+          into = c("state","time","AGEGROUP"), 
+          regex = "(.+)\\[(\\d+),(\\d)\\]", 
+          convert = TRUE) %>%
+  mutate(
+    AGEGROUP = case_when(
+      AGEGROUP == 1 ~ agebin70_10y_levels[1],
+      AGEGROUP == 2 ~ agebin70_10y_levels[2],
+      AGEGROUP == 3 ~ agebin70_10y_levels[3],
+      AGEGROUP == 4 ~ agebin70_10y_levels[4],
+      AGEGROUP == 5 ~ agebin70_10y_levels[5],
+      AGEGROUP == 6 ~ agebin70_10y_levels[6],
+      AGEGROUP == 7 ~ agebin70_10y_levels[7],
+      AGEGROUP == 8 ~ agebin70_10y_levels[8]),
+    AGEGROUP = as.factor(AGEGROUP),
+    date = set_start_date + days(time-1),
+    state = factor(state, levels = c("expected_hospdeaths","simulated_hospdeaths"))
+  ) 
+
+manaus_2w_simp_hospdeaths_predictions_with_data <- manaus_2w_simp_hospdeaths_predictions %>%
+  select(date, state, q50, AGEGROUP) %>%
+  rbind(data_hospdeaths %>% 
+          rename(q50 = count,
+                 date = DT_EVOLUTION) %>%
+          mutate(state = "data_hospdeaths") %>%
+          filter(date >= set_start_date,
+                 date <= set_end_date)
+        ) %>%
+  left_join(manaus_2w_simp_hospdeaths_predictions) 
+
+manaus_2w_simp_hospdeaths_predictions_with_data %>%
+  filter(state == "data_hospdeaths")
+
+manaus_2w_simp_hospdeaths_predictions_with_data %>%
+  filter(state == "expected_hospdeaths")
+```
+
+#### plots
+```{r, fig.width = 14}
+manaus_2w_simp_hospdeaths_predictions_with_data %>%
+  mutate(AGEGROUP = factor(AGEGROUP, levels = rev(levels(AGEGROUP)))) %>%
+  ggplot(aes(x = date)) +
+  
+  geom_ribbon(data = . %>% filter(state == "simulated_hospdeaths"), aes(y= q50, ymin = q05, ymax = q95, fill = AGEGROUP), alpha = 0.2) +
+  #geom_line(data = . %>% filter(state == "simulated_hospdeaths"), aes(y = q50), size = 0.8) +
+  
+  geom_ribbon(data = . %>% filter(state == "expected_hospdeaths"), aes(y= q50, ymin = q05, ymax = q95, fill = AGEGROUP), alpha = 0.4) +
+  geom_line(data = . %>% filter(state == "expected_hospdeaths"), aes(y = q50, group = AGEGROUP), size = 0.8, color = "black") +
+  
+  geom_point(data = . %>% filter(state == "data_hospdeaths"),aes(y=q50, color = AGEGROUP)) +
+  labs(x = "date", y = "Hospital deaths") +
+  #facet_wrap(~AGEGROUP, scales = "free_y") +
+  theme_bw() 
+```
+
+
+
+```{r, fig.width = 28}
+manaus_2w_simp_hospdeaths_predictions_with_data %>%
+  #mutate(AGEGROUP = factor(AGEGROUP, levels = rev(levels(AGEGROUP)))) %>%
+  ggplot(aes(x = date)) +
+  
+  geom_ribbon(data = . %>% filter(state == "simulated_hospdeaths"), aes(y= q50, ymin = q05, ymax = q95, fill = AGEGROUP), alpha = 0.2) +
+  #geom_line(data = . %>% filter(state == "simulated_hospdeaths"), aes(y = q50), size = 0.8) +
+  
+  geom_ribbon(data = . %>% filter(state == "expected_hospdeaths"), aes(y= q50, ymin = q05, ymax = q95, fill = AGEGROUP, color = AGEGROUP), alpha = 0.3) +
+  geom_line(data = . %>% filter(state == "expected_hospdeaths"), aes(y = q50), size = 0.8) +
+  
+  geom_point(data = . %>% filter(state == "data_hospdeaths"),aes(y=q50, color = AGEGROUP)) +
+  scale_color_manual(values = color_to_age_map) +
+  scale_fill_manual(values = color_to_age_map) +
+  labs(x = "date", y = "Hospital deaths") +
+  facet_wrap(~AGEGROUP, scales = "free_y") +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b \n %y") + 
+  theme_bw() +
+  geom_text(aes(label = AGEGROUP, x = (min(date) + (max(date) - min(date))/2)), y = Inf, vjust = 1.5, size = 8, family = "Arial", check_overlap = TRUE) + #add stip.text in figure
+  theme(    
+    legend.position = "none",
+    #legend.title = element_text(size = 18),
+    #legend.text = element_text(size = 18),
+    #legend.position = c(0.99,-0.05),
+    #legend.justification = c("right", "bottom"),
+    axis.text.x = element_text(size = 18),
+    axis.text.y = element_text(size = 18),
+    axis.title.x = element_blank(),
+    axis.title.y = element_text(size = 20, face = "bold"),
+    axis.ticks = element_line(colour = "black", size = 2,),
+    axis.ticks.length = unit(3, "mm"),
+    axis.line = element_line(colour = "black", size = 1),
+    panel.border = element_blank(),
+    plot.margin = margin(1, 1, 0, 2, "cm"),
+    strip.placement = "inside",
+    strip.text = element_blank(),
+    strip.background = element_blank())
+```
+
+### Sero
+```{r}
+manaus_2w_simp_sero_predictions <- manaus_2w_updated_draws_df %>%
+  select(matches("^expected_serodata|^simulated_serodata")) %>%
+  summarise(across(everything(), list(q05 = ~quantile(., 0.025, na.rm = TRUE), 
+                                      q50 = ~quantile(., 0.50, na.rm = TRUE), 
+                                      q95 = ~quantile(., 0.975, na.rm = TRUE)
+                                      )
+                   )
+            ) %>%
+  pivot_longer(cols = everything(), 
+               names_to = c("state[time_index,AGEGROUP]",".value"), 
+               names_pattern = "(.+)_(q.+)") %>%
+  extract("state[time_index,AGEGROUP]", 
+          into = c("state","time_index","AGEGROUP"), 
+          regex = "(.+)\\[(\\d+),(\\d)\\]", 
+          convert = TRUE) %>%
+  mutate(
+    AGEGROUP = case_when(
+      AGEGROUP == 1 ~ agebin70_10y_levels[2],
+      AGEGROUP == 2 ~ agebin70_10y_levels[3],
+      AGEGROUP == 3 ~ agebin70_10y_levels[4],
+      AGEGROUP == 4 ~ agebin70_10y_levels[5],
+      AGEGROUP == 5 ~ agebin70_10y_levels[6],
+      AGEGROUP == 6 ~ agebin70_10y_levels[7]),
+    AGEGROUP = as.factor(AGEGROUP),
+  ) %>%
+  left_join(stan_seroprevalence_data %>% 
+              ungroup() %>%
+              filter(median_date < set_end_date) %>%
+              group_by(AGEGROUP) %>%
+              #select(median_date, AGEGROUP, Positive, SampleSize) %>%
+              mutate(time_index = row_number()) %>%
+              select(median_date, time_index)
+            ) %>%
+  left_join(stan_seroprevalence_data %>% select(median_date, AGEGROUP, SampleSize))
+
+manaus_2w_simp_sero_predictions_data <- manaus_2w_simp_sero_predictions %>%
+  select(state, AGEGROUP, q50, median_date, SampleSize) %>%
+  rbind(stan_seroprevalence_data  %>%
+          ungroup() %>%
+          filter(median_date <= set_end_date) %>%
+          rename(q50 = Positive_140) %>%
+          mutate(state = as.factor("data_sero")) %>%
+          select(state, AGEGROUP, q50, median_date, SampleSize)
+  ) %>%
+  left_join(manaus_2w_simp_sero_predictions)
+
+manaus_2w_simp_sero_predictions_data 
+```
+
+```{r, fig.width=28}
+manaus_2w_simp_sero_predictions_data %>%
+  mutate(AGEGROUP = factor(AGEGROUP, levels = rev(levels(AGEGROUP)))) %>%
+  ggplot(aes(x = median_date)) +
+  
+  geom_ribbon(data = . %>% filter(state == "simulated_serodata"), aes(y= q50, ymin = q05, ymax = q95, fill = AGEGROUP), alpha = 0.2) +
+  #geom_line(data = . %>% filter(state == "simulated_hospdeaths"), aes(y = q50), size = 0.8) +
+  
+  geom_ribbon(data = . %>% filter(state == "expected_serodata"), aes(y= q50, ymin = q05, ymax = q95, fill = AGEGROUP, color = AGEGROUP), alpha = 0.3) +
+  geom_line(data = . %>% filter(state == "expected_serodata"), aes(y = q50), size = 0.8) +
+  
+  geom_point(data = . %>% filter(state == "data_sero"),aes(y=q50, color = AGEGROUP, size = SampleSize)) +
+  
+  labs(x = "date", y = "Seropositives", title = "Seropositives") +
+  scale_color_manual(values = color_to_age_map) +
+  scale_fill_manual(values = color_to_age_map) +
+  facet_wrap(~AGEGROUP, scales = "free_y") +
+  theme_bw() 
+
+manaus_2w_simp_sero_predictions_data %>%
+  mutate(AGEGROUP = factor(AGEGROUP, levels = rev(levels(AGEGROUP)))) %>%
+  ggplot(aes(x = median_date)) +
+  
+  geom_ribbon(data = . %>% filter(state == "simulated_serodata"), aes(y= q50/SampleSize, ymin = q05/SampleSize, ymax = q95/SampleSize, fill = AGEGROUP), alpha = 0.2) +
+  #geom_line(data = . %>% filter(state == "simulated_hospdeaths"), aes(y = q50), size = 0.8) +
+  
+  geom_ribbon(data = . %>% filter(state == "expected_serodata"), aes(y= q50/SampleSize, ymin = q05/SampleSize, ymax = q95/SampleSize, fill = AGEGROUP, color = AGEGROUP), alpha = 0.3) +
+  geom_line(data = . %>% filter(state == "expected_serodata"), aes(y = q50/SampleSize), size = 0.8) +
+  
+  geom_point(data = . %>% filter(state == "data_sero"),aes(y=q50/SampleSize, color = AGEGROUP, size = SampleSize)) +
+  
+  labs(x = "date", y = "Seroprevalence(%)") +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b \n %y") + 
+  facet_wrap(~AGEGROUP, scales = "free_y") +
+  scale_color_manual(values = color_to_age_map) +
+  scale_fill_manual(values = color_to_age_map) +
+  theme_bw() +
+  geom_text(aes(label = AGEGROUP, x = (min(median_date) + (max(median_date) - min(median_date))/2)), y = Inf, vjust = 1.5, size = 8, family = "Arial", check_overlap = TRUE) + #add stip.text in figure
+  guides(size = guide_legend(title = "Sample size"),
+         color = "none", #guide_legend(title = "Agegroup"),
+         fill = "none" #guide_legend(title = "Agegroup")
+         ) +
+  theme(    
+    legend.text = element_text(size = 18),
+    legend.title = element_text(size = 18),
+    #legend.position = c(0.99,-0.05),
+    #legend.justification = c("right", "bottom"),
+    axis.text.x = element_text(size = 18),
+    axis.text.y = element_text(size = 18),
+    axis.title.x = element_blank(),
+    axis.title.y = element_text(size = 20, face = "bold"),
+    axis.ticks = element_line(colour = "black", size = 2,),
+    axis.ticks.length = unit(3, "mm"),
+    axis.line = element_line(colour = "black", size = 1),
+    panel.border = element_blank(),
+    plot.margin = margin(1, 1, 0, 2, "cm"),
+    strip.placement = "inside",
+    strip.text = element_blank(),
+    strip.background = element_blank())
+```
+
+### Strain frequency
+```{r}
+manaus_2w_simp_phylo_predictions <- manaus_2w_updated_draws_df %>%
+  select(matches("^expected_phylodata|^simulated_phylodata")) %>%
+  summarise(across(everything(), list(q05 = ~quantile(., 0.025, na.rm = TRUE), 
+                                      q50 = ~quantile(., 0.50, na.rm = TRUE), 
+                                      q95 = ~quantile(., 0.975, na.rm = TRUE)
+                                      )
+                   )
+            ) %>%
+  pivot_longer(cols = everything(), 
+               names_to = c("state[time_index]",".value"), 
+               names_pattern = "(.+)_(q.+)") %>%
+  extract("state[time_index]", 
+          into = c("state","time_index"), 
+          regex = "(.+)\\[(\\d+)\\]", 
+          convert = TRUE) %>%
+  left_join(strain_frequency %>% 
+              mutate(time_index = row_number()) %>%
+              select(date, time_index, number)
+            ) 
+
+manaus_2w_simp_phylo_predictions_data <- manaus_2w_simp_phylo_predictions %>%
+  select(state, date, q50, number) %>%
+  rbind(strain_frequency  %>%
+          rename(q50 = positive) %>%
+          mutate(state = as.factor("data_phylo"))
+  ) %>%
+  left_join(manaus_2w_simp_phylo_predictions)
+
+manaus_2w_simp_phylo_predictions_data 
+```
+
+```{r, fig.width = 14}
+manaus_2w_simp_phylo_predictions_data %>%
+  ggplot(aes(x = date)) +
+  
+  geom_ribbon(data = . %>% filter(state == "simulated_phylodata"), aes(y= q50/number, ymin = q05/number, ymax = q95/number), alpha = 0.2) +
+  #geom_line(data = . %>% filter(state == "simulated_hospdeaths"), aes(y = q50), size = 0.8) +
+  
+  geom_ribbon(data = . %>% filter(state == "expected_phylodata"), aes(y= q50/number, ymin = q05/number, ymax = q95/number), alpha = 0.4) +
+  geom_line(data = . %>% filter(state == "expected_phylodata"), aes(y = q50/number), size = 0.8, color = "black") +
+  geom_point(data = . %>% filter(state == "data_phylo"), 
+             aes(y = q50 / number, size = number)#, 
+             #shape = 1, 
+             #fill = NA, 
+             #stroke =1
+             ) +
+  geom_errorbar(
+    data = . %>% filter(state == "data_phylo"),
+    aes(
+      ymin = mapply(function(x, n) binom.test(x, n)$conf.int[1], q50, number),
+      ymax = mapply(function(x, n) binom.test(x, n)$conf.int[2], q50, number)
+    ),
+    width = 2, linewidth = 1
+  ) +
+  labs(x = "date", y = "Frequency", size = "Samples") +
+  scale_x_continuous(breaks = unique(manaus_2w_simp_phylo_predictions_data$date)) +
+  #facet_wrap(~AGEGROUP, scales = "free_y") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+### ODE 
+```{r}
+manaus_2w_simp_sims <- manaus_2w_updated_draws_df %>%
+  select(matches("^Waned|^Recovered|^Susceptible|^Infected|^total_N")) %>%
+  summarise(across(everything(), list(q05 = ~quantile(., 0.025, na.rm = TRUE), 
+                                      q50 = ~quantile(., 0.50, na.rm = TRUE), 
+                                      q95 = ~quantile(., 0.975, na.rm = TRUE)
+                                      )
+                   )
+            ) %>%
+  pivot_longer(cols = everything(), 
+               names_to = c("state[time,AGEGROUP]",".value"), 
+               names_pattern = "(.+)_(q.+)") %>%
+  extract("state[time,AGEGROUP]", 
+          into = c("state","time","AGEGROUP"), 
+          regex = "(.+)\\[(\\d+),(\\d)\\]", 
+          convert = TRUE) %>%
+  mutate(
+    AGEGROUP = factor(agebin70_10y_levels[AGEGROUP], levels = agebin70_10y_levels),
+    date = set_start_date + days(time-1),
+    state = factor(state, levels = c(simstates))
+  )
+
+```
+
+#### plot
+```{r, fig.width=14}
+manaus_2w_simp_sims %>%
+  #filter(str_detect(state,"Susceptible")) %>%
+  
+  #filter(date > "2020-07-01" & date < "2020-12-01") %>%
+  
+  mutate(AGEGROUP = factor(AGEGROUP, levels = rev(levels(AGEGROUP)))) %>%
+  ggplot(aes(x = date)) +
+  #geom_point(aes(y = q50, color=AGEGROUP)) +
+  geom_line(aes(y = q50, color=AGEGROUP)) +
+  #geom_line(data = sum_q50, aes(y = q50_sum, color = state), linetype = "dashed") +
+  facet_wrap(~state, scales = "free_y") +
+  #facet_wrap(~state) +
+  #scale_y_log10() +
+  labs(x = "date", y = "Individuals") +
+  
+  scale_color_manual(values = color_to_age_map) +
+  #scale_fill_manual(values = color_to_age_map) +
+  theme_bw() +
+  theme(    
+    legend.text = element_text(size = 30),
+    legend.title = element_blank(),
+    legend.position = c(1,0),
+    legend.justification = c("right", "bottom"),
+    axis.text.x = element_text(size = 25),
+    axis.text.y = element_text(size = 25),
+    axis.title.x = element_blank(),
+    axis.title.y = element_text(size = 30, face = "bold"),
+    axis.ticks = element_line(colour = "black", size = 2,),
+    axis.ticks.length = unit(3, "mm"),
+    axis.line = element_line(colour = "black", size = 1),
+    panel.spacing = unit(1, "cm"),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(), 
+    panel.grid.minor = element_blank(),  
+    plot.margin = margin(1, 1, 0, 2, "cm"),
+    strip.placement = "inside",
+    strip.text = element_blank(),
+    strip.background = element_blank())
+```
+
+```{r, fig.width=28, fig.height=20}
+totals <- manaus_2w_simp_sims %>%
+  filter(state == "total_N") %>%
+  select(date, AGEGROUP, q50_total = q50)
+
+manaus_2w_simp_sims %>%
+  filter(state != "total_N", state != "Waned2") %>%
+  left_join(totals, by = c("date", "AGEGROUP")) %>%
+  mutate(q50_prop = q50 / q50_total) %>%
+  
+  mutate(AGEGROUP = factor(AGEGROUP#, 
+                           #levels = rev(levels(AGEGROUP))
+                           )
+         ) %>%
+  ggplot(aes(x = date)) +
+  geom_line(aes(y = q50_prop, color = AGEGROUP), size = 1.5) +
+  facet_wrap(~state, scales = "free_y", ncol = 2, dir = "v") +
+  labs(x = "date", y = "Proportion of total age group") +
+  scale_color_manual(values = color_to_age_map) +
+  scale_x_date(date_breaks = "2 month", 
+               date_minor_breaks = "1 month",
+               expand = c(0,0), 
+               limits = c(as.Date("2020-03-01"), NA), 
+               labels = label_date_short(format = c("%y", "%b"))) + 
+  scale_y_continuous(limits = c(0, NA), 
+                     #breaks = seq(0,1, by = 0.25), 
+                     expand=expand_scale(mult= c(0,0.15)), labels = label_number()) +
+  geom_text(aes(label = state, x = (min(date) + (max(date) - min(date))/2)), color = "black",y = Inf, vjust = 1.5, size = 8, family = "Arial", check_overlap = TRUE) +
+  theme_bw() +
+  guides(color = guide_legend(title = "Age group")) +
+  theme(    
+    legend.text = element_text(size = 25),
+    legend.title = element_text(size = 25),
+    legend.position = c(.5,1),
+    legend.justification = c("right", "top"),
+    legend.background = element_blank(),
+    axis.text.x = element_text(size = 25),
+    axis.text.y = element_text(size = 25),
+    axis.title.x = element_blank(),
+    axis.title.y = element_text(size = 30, face = "bold"),
+    axis.ticks = element_line(colour = "black", size = 2,),
+    axis.ticks.length = unit(3, "mm"),
+    axis.line = element_line(colour = "black", size = 1),
+    panel.spacing = unit(1, "cm"),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(), 
+    panel.grid.minor = element_blank(),  
+    plot.margin = margin(1, 1, 0, 2, "cm"),
+    strip.placement = "inside",
+    strip.text = element_blank(),
+    strip.background = element_blank())
+```
+
+```{r}
+#Per age group
+manaus_2w_simp_sims %>%
+  filter(state != "total_N") %>%
+  left_join(totals, by = c("date", "AGEGROUP")) %>%
+  mutate(q50_prop = q50 / q50_total) %>%
+  filter(state == "Susceptible")
+
+#Overall
+manaus_2w_simp_sims %>%
+  filter(state != "total_N") %>%
+  left_join(totals, by = c("date", "AGEGROUP")) %>%
+  group_by(date, state) %>%
+  summarize(q50_prop = sum(q50) / sum(q50_total)) %>%
+  filter(state == "Susceptible")
+
+manaus_2w_simp_sims %>%
+  filter(state != "total_N") %>%
+  left_join(totals, by = c("date", "AGEGROUP")) %>%
+  group_by(date, state) %>%
+  summarize(q50_prop = sum(q50) / sum(q50_total), .groups = "drop") %>%
+  filter(state == "Waned1") %>%
+  summarize(max = max(q50_prop))
+
+```
+
+```{r}
+(0.5811168 - 3.857932e-01) / 0.5811168	
+```
+
+
+```{r, fig.width = 14}
+manaus_2w_simp_sims %>%
+  ggplot(aes(x = date)) +
+  geom_point(aes(y = q50, color=AGEGROUP)) +
+  geom_line(aes(y = q50, color=AGEGROUP), linewidth = .8) +
+  #geom_line(data = sum_q50, aes(y = q50_sum, color = state), linetype = "dashed") +
+  #scale_y_log10() +
+  scale_color_manual(values = color_to_age_map) +
+  #scale_fill_manual(values = color_to_age_map) +
+  #scale_y_log10() +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b \n %y",
+               limits = c(as.Date("2020-03-01"), as.Date("2021-05-03")),
+               expand = c(0, 1)
+               ) + 
+  labs(x = "date", y = "Individuals") +
+  facet_wrap(~state, scales = "free_y", ncol = 1) +
+  theme_bw() +
+  geom_text(aes(label = state, x = (min(date) + (max(date) - min(date))/2)), y = Inf, vjust = 1.5, size = 8, family = "Arial", check_overlap = TRUE) +
+  theme(
+    legend.text = element_text(size = 18),
+    legend.title = element_blank(),
+    #legend.position = c(0.01,1),
+    legend.justification = c("right"),
+    legend.background = element_blank(),
+    axis.text.x = element_text(size = 18),
+    axis.text.y = element_text(size = 18),
+    axis.title.x = element_blank(),
+    axis.title.y = element_text(size = 18),
+    axis.ticks = element_line(colour = "black", size = 2,),
+    axis.ticks.length = unit(3, "mm"),
+    axis.line = element_line(colour = "black", size = 1),
+    panel.border = element_blank(),
+    plot.margin = margin(1, 1, 0, 2, "cm"),
+      strip.placement = "inside",
+    strip.text = element_blank(),
+    strip.background = element_blank()
+  ) 
+```
+
+```{r}
+manaus_2w_simp_sims
+```
+
+```{r, fig.width=14}
+manaus_2w_simp_sims %>%
+  select(date, state, AGEGROUP, q50) %>%
+  pivot_wider(names_from = state, values_from = q50) %>% 
+  mutate(N = rowSums(select(., all_of(simstates)))
+         ) %>%
+  ggplot(aes(x = date)) +
+  geom_line(aes(y=(Infected2 + Infected2_re)/(Infected1 + Infected1_re + Infected2 + Infected2_re), col=AGEGROUP), size = 1) + 
+  labs(x = "date", y = "Individuals") +
+  geom_point(data = strain_frequency, aes(y = positive / number, size = number), shape = 1, fill = NA, stroke =1) +
+  #facet_wrap(~AGEGROUP) +
+  scale_color_manual(values = color_to_age_map) +
+  scale_fill_manual(values = color_to_age_map) +
+  scale_y_continuous(limits = c(0,1)) +
+  theme_bw() 
+
+manaus_2w_simp_sims %>%
+  select(date, state, AGEGROUP, q50) %>%
+  pivot_wider(names_from = state, values_from = q50) %>% 
+  mutate(N = rowSums(select(., all_of(simstates)))
+         ) %>%
+  ggplot(aes(x = date)) +
+  geom_line(aes(y=(Infected2)/(Infected1 + Infected2), col=AGEGROUP), size = 1) + 
+  labs(x = "date", y = "Individuals") +
+  geom_point(data = strain_frequency, aes(y = positive / number, size = number), shape = 1, fill = NA, stroke =1) +
+  #facet_wrap(~AGEGROUP) +
+  scale_color_manual(values = color_to_age_map) +
+  scale_fill_manual(values = color_to_age_map) +
+  scale_y_continuous(limits = c(0,1)) +
+  theme_bw() 
+```
+
+
+
+
+#### Reinfected
+```{r, fig.width=14}
+manaus_2w_simp_sims %>%
+  select(date, state, AGEGROUP, q50) %>%
+  pivot_wider(names_from = state, values_from = q50) %>% 
+  group_by(AGEGROUP) %>%
+  #mutate(total_waned = Recovered1 + Waned1 + Infected2_re) %>%
+  ggplot(aes(x=date, color = AGEGROUP)) +
+  geom_line(aes(y=Infected1_re + Recovered1 + Waned1), size = 1) 
+```
+
+
+```{r}
+manaus_2w_simp_sims_wide_q50 <- manaus_2w_simp_sims %>%
+  select(date, state, AGEGROUP, q50) %>%
+  pivot_wider(names_from = state, values_from = q50) %>% 
+  arrange(date) %>%
+  group_by(AGEGROUP) %>%
+  mutate(N = Susceptible + Infected1 + Infected1_re + Recovered1 + Waned1 + Infected2 + Infected2_re + Recovered2 + Waned2,
+         total_R1 = Recovered1 + Waned1 + Infected1_re,
+         max_q50 = max(total_R1),
+         final_q50 = last(total_R1),
+         reinfected = max_q50 - final_q50,
+         p_reinfected = reinfected / max_q50 * 100,
+         p_remaining = final_q50 / max_q50 * 100) %>%
+  ungroup()
+
+manaus_2w_simp_sims_wide_q50 #%>%
+  #select(AGEGROUP, final_q50, reinfected, p_reinfected, p_remaining)
+
+manaus_2w_simp_sims_wide_q50 %>%
+  summarise(p_reinfected_weighted_average = sum(reinfected) / sum(max_q50))
+```
+
+```{r, fig.width=14}
+manaus_2w_simp_sims %>%
+  select(date, state, AGEGROUP, q50) %>%
+  pivot_wider(names_from = state, values_from = q50) %>% 
+  mutate(N = rowSums(select(., all_of(simstates))),
+         AGEGROUP = case_when(
+               AGEGROUP == "[70,inf]" ~ "[70+]",
+               TRUE ~ AGEGROUP)
+         ) %>%
+  ggplot(aes(x=date, color = AGEGROUP) ) +
+  geom_line(aes(y=(Infected1+Infected1_re+Infected2+Infected2_re)/N, linetype = factor("All infections")), size =1) + 
+  geom_line(aes(y=(Infected1+Infected2)/N, linetype = factor("Primary Infections")), size =1) + 
+  geom_line(aes(y=(Infected1_re+Infected2_re)/N, linetype = factor("Reinfections")), size =1) + 
+  scale_linetype_manual(values = c("All infections" = "dotdash", "Primary Infections" = "solid", "Reinfections" = "dashed")#,
+                        #labels = c("Total" = "N", "Recovered1 + Waned1" = expression(R[1]+W[1]), "Recovered1" = expression(R[1]), "Waned1" = expression(W[1])) 
+                        )+
+  scale_color_manual(values = color_to_age_map) +
+  facet_wrap(~AGEGROUP, scales = "free_y") +
+    guides(color = "none", linetype = guide_legend(override.aes = list(size = 20, linewidth=2))) +
+  theme_bw() +
+  theme(
+    legend.text = element_text(size = 30),
+    legend.title = element_blank(),
+    legend.position = c(1,-0.02),
+    legend.justification = c("right", "bottom"),
+    legend.background = element_blank(),
+    panel.grid.major = element_blank(), 
+    panel.grid.minor = element_blank(), 
+        )
+```
+
+
+```{r, fig.width=14}
+manaus_2w_simp_sims %>%
+  select(date, state, AGEGROUP, q50) %>%
+  pivot_wider(names_from = state, values_from = q50) %>% 
+  mutate(N = rowSums(select(., all_of(simstates))),
+         AGEGROUP = case_when(
+               AGEGROUP == "[70,inf]" ~ "[70+]",
+               TRUE ~ AGEGROUP)
+         ) %>%
+  ggplot(aes(x=date, color = AGEGROUP) ) +
+  geom_line(aes(y=(Infected1+Infected1_re+Infected2+Infected2_re), linetype = factor("All infections")), size =1) + 
+  geom_line(aes(y=(Infected2+Infected2_re), linetype = factor("P.1")), size =1) + 
+  geom_line(aes(y=(Infected1+Infected1_re), linetype = factor("non-P.1")), size =1) + 
+  scale_linetype_manual(values = c("All infections" = "dotdash", "P.1" = "solid", "non-P.1" = "dashed")#,
+                        #labels = c("Total" = "N", "Recovered1 + Waned1" = expression(R[1]+W[1]), "Recovered1" = expression(R[1]), "Waned1" = expression(W[1])) 
+                        )+
+  scale_color_manual(values = color_to_age_map) +
+  facet_wrap(~AGEGROUP, scales = "free_y") +
+    guides(color = "none", linetype = guide_legend(override.aes = list(size = 20, linewidth=2))) +
+  theme_bw() +
+  theme(
+    legend.text = element_text(size = 30),
+    legend.title = element_blank(),
+    legend.position = c(1,-0.02),
+    legend.justification = c("right", "bottom"),
+    legend.background = element_blank(),
+    panel.grid.major = element_blank(), 
+    panel.grid.minor = element_blank(), 
+        )
+```
+
+#### Cumulative deaths
+```{r}
+manaus_2w_simp_hospdeaths_with_CF <-manaus_2w_updated_draws_df %>%
+  select(matches("simulated_hospdeaths|expected_hospdeaths")) %>%
+  summarise(across(everything(), list(q05 = ~quantile(., 0.025, na.rm = TRUE), 
+                                      q50 = ~quantile(., 0.50, na.rm = TRUE), 
+                                      q95 = ~quantile(., 0.975, na.rm = TRUE)
+                                      )
+                   )
+            ) %>%
+  pivot_longer(cols = everything(), 
+               names_to = c("state[time,AGEGROUP]",".value"), 
+               names_pattern = "(.+)_(q.+)") %>%
+  extract("state[time,AGEGROUP]", 
+          into = c("state","time","AGEGROUP"), 
+          regex = "(.+)\\[(\\d+),(\\d)\\]", 
+          convert = TRUE) %>%
+  mutate(
+    AGEGROUP = case_when(
+      AGEGROUP == 1 ~ agebin70_10y_levels[1],
+      AGEGROUP == 2 ~ agebin70_10y_levels[2],
+      AGEGROUP == 3 ~ agebin70_10y_levels[3],
+      AGEGROUP == 4 ~ agebin70_10y_levels[4],
+      AGEGROUP == 5 ~ agebin70_10y_levels[5],
+      AGEGROUP == 6 ~ agebin70_10y_levels[6],
+      AGEGROUP == 7 ~ agebin70_10y_levels[7],
+      AGEGROUP == 8 ~ agebin70_10y_levels[8]),
+    AGEGROUP = as.factor(AGEGROUP),
+    date = set_start_date + days(time-1),
+    state = as.factor(state)
+  ) 
+
+manaus_2w_simp_hospdeaths_with_CF_with_data <- manaus_2w_simp_hospdeaths_with_CF %>%
+  select(date, state, q50, AGEGROUP) %>%
+  rbind(data_hospdeaths %>% 
+          rename(q50 = count,
+                 date = DT_EVOLUTION) %>%
+          mutate(state = "data_hospdeaths") %>%
+          filter(date <= set_end_date)
+        ) %>%
+  left_join(manaus_2w_simp_hospdeaths_with_CF) 
+```
+
+```{r}
+manaus_2w_simp_hospdeaths_with_CF_with_data_cumulative <- manaus_2w_simp_hospdeaths_with_CF_with_data %>%
+  ungroup() %>%
+  group_by(date, state, AGEGROUP) %>%
+  #summarise(
+  #  q05 = sum(q05, na.rm = TRUE),
+  #  q50 = sum(q50, na.rm = TRUE),
+  #  q95 = sum(q95, na.rm = TRUE)
+  #) %>%
+  group_by(state, AGEGROUP) %>%
+  arrange(date) %>%
+  mutate(
+    cum_q05 = cumsum(q05),
+    cum_q50 = cumsum(q50),
+    cum_q95 = cumsum(q95)
+  ) %>%
+  ungroup()
+
+manaus_2w_simp_hospdeaths_with_CF_with_data_cumulative
+```
+
+
+```{r, fig.width = 14}
+manaus_2w_simp_hospdeaths_with_CF_with_data_cumulative %>%
+  #filter(state == "CF00_expected_hospdeaths") %>%
+  ggplot(aes(x = date, color = AGEGROUP, fill = AGEGROUP)) +
+  
+  geom_ribbon(data = . %>% filter(state == "simulated_hospdeaths"), aes(y= cum_q50, ymin = cum_q05, ymax = cum_q95), alpha = 0.2) +
+  
+  geom_line(data = . %>% filter(state == "simulated_hospdeaths"), aes(y = cum_q50), size = 0.8) +
+  
+  geom_ribbon(data = . %>% filter(state == "expected_hospdeaths"), aes(y= cum_q50, ymin = cum_q05, ymax = cum_q95), alpha = 0.4) +
+  
+  
+  geom_line(data = . %>% filter(state == "expected_hospdeaths"), aes(y= cum_q50), col = "black") + 
+  
+  geom_point(data = . %>% filter(state == "data_hospdeaths"), aes(y=cum_q50)) +
+  
+  #scale_linetype_manual(values = c("expected_hospdeaths" = "solid", "CF75_expected_hospdeaths" = "solid", "CF50_expected_hospdeaths" = "solid", "CF00_expected_hospdeaths"= "dashed")) +
+  labs(x = "date", y = "Hospital deaths") +
+  scale_color_manual(values = color_to_age_map) +
+  scale_fill_manual(values = color_to_age_map) +
+  facet_wrap(~AGEGROUP, scales = "free_y") +
+  theme_bw() 
+```

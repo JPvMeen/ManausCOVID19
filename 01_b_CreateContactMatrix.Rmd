@@ -1,0 +1,282 @@
+## Packages
+```{r include=FALSE}
+#data management
+data_management_packages_to_install <- c("data.table", "tidyverse", "readxl", "yarrr", "ggplot2", "zoo", "ggdist", "ggbeeswarm", "forecast")
+
+packages_to_install <- c(data_management_packages_to_install)
+
+# Check and install packages using a for loop
+for (package in packages_to_install) {
+  if (!requireNamespace(package, quietly = TRUE)) {
+    install.packages(package)
+  }
+  library(package, character.only = TRUE)
+}
+
+#used for rolling averages
+#install.packages("zoo") 
+#library("zoo")
+
+#More packages
+#lib
+
+## Contact Matrix
+### Contact Matrix Brazil 
+```
+
+## Agebins
+```{r}
+agebin100_5y_levels <- c(paste0("[", seq(0, 95, by = 5), ",", seq(5, 100, by = 5), "]"), "[100,inf]")
+agebin100_10y_levels <- c(paste0("[", seq(0, 90, by = 10), ",", seq(10, 100, by = 10), "]"), "[100,inf]")
+agebin70_10y_levels <- c(paste0("[", seq(0, 60, by = 10), ",", seq(10, 70, by = 10), "]"), "[70,inf]")
+agebin70_5y_levels <- c(paste0("[", seq(0, 70, by = 5), ",", seq(5, 75, by = 5), "]"), "[75,inf]")
+```
+
+
+```{r}
+load('data/contact_all.rdata')
+
+contact_5y_BRA_matrix <- contact_all$BRA #only take Brazil
+
+contact_5y_df <- as.data.frame(contact_5y_BRA_matrix) %>%
+  rownames_to_column(var = "Row_index") %>%
+  gather(key = "Column_index", value = "m_value", -Row_index) %>%
+  mutate(Column_index = as.integer(str_replace(Column_index, "V", "")),
+         Row_index = as.integer(Row_index),
+         part_age_5y = factor(agebin70_5y_levels[Row_index], levels = agebin70_5y_levels), #force levels order
+         contact_age_5y = factor(agebin70_5y_levels[Column_index], levels = agebin70_5y_levels) #force levels order
+         ) %>%
+  select(part_age_5y, contact_age_5y, m_value)
+
+contact_5y_df
+```
+
+```{r}
+contact_5y_BRA_matrix
+```
+
+
+### Contact Matrix plot 5 years
+```{r, fig.width = 14}
+color_list = c("white", "steelblue", "navy", 'black')
+
+color_gradient = colorRampPalette(color_list, bias = 2.0)(100)
+
+contact_5y_df %>% 
+  ggplot(aes(part_age_5y, contact_age_5y)) +
+  geom_tile(aes(fill = m_value)) +
+  scale_fill_gradientn(colours = color_gradient) +
+  geom_text(aes(label = round(m_value, 2)), color = "red", size =5) +  # Add labels
+  theme_bw() +
+  theme(aspect.ratio = 1,
+        axis.text.x = element_text(angle = 45, hjust=1)) +
+  labs(title = "Contact Matrix Brazil",
+       x = "Age group of individual",
+       y = "Age group of contact")
+```
+#### Agebin of 10 years (correct)
+```{r, fig.width = 14}
+load('data/poptotal.rdata')
+
+poptotal %>%
+  filter(iso3c == "BRA") %>%
+  select(contains("age")) %>%
+  rename_at(vars(starts_with("age")), ~ agebin100_5y_levels) %>%
+  select(agebin100_5y_levels) %>%
+  pivot_longer(cols = agebin100_5y_levels, names_to = "AGEGROUP", values_to = "poptotal") %>%
+  mutate(AGEGROUP = factor(AGEGROUP, levels = agebin100_5y_levels)) %>%
+  ggplot(aes(x=AGEGROUP, y=poptotal)) +
+  geom_bar(stat = "identity") + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) 
+
+  
+poptotal_5y_BRA <- poptotal %>%  #only take Brazil
+  filter(iso3c == "BRA") %>%
+  select(contains("age")) %>%
+  rename_at(vars(starts_with("age")), ~ agebin100_5y_levels) %>%
+  mutate("[75,inf]" = rowSums(select(., all_of(setdiff(agebin100_5y_levels, agebin70_5y_levels))))) %>%
+  select(agebin70_5y_levels)
+
+setdiff(agebin100_5y_levels, agebin70_5y_levels)
+
+poptotal_5y_BRA_long <- poptotal_5y_BRA %>%
+  pivot_longer(cols = agebin70_5y_levels, names_to = "AGEGROUP", values_to = "poptotal") %>%
+  mutate(AGEGROUP = factor(AGEGROUP, levels = agebin70_5y_levels)) 
+
+poptotal_5y_BRA_long %>%
+  ggplot(aes(x=AGEGROUP, y=poptotal)) +
+  geom_bar(stat = "identity") + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  geom_text(aes(label = round(poptotal, 2)), color = "red", size =5) + 
+  coord_flip()
+```
+
+```{r}
+age_groups <- c(72.5, 77.5, 82.5, 87.5, 92.5, 97.5)  # Midpoints of intervals
+pop_counts <- c(5309419, 3492132, 2317208, 1175240, 510827, 134602)  # Population counts
+
+# Calculate the weighted average age
+average_age_70plus <- sum(age_groups * pop_counts) / sum(pop_counts)
+average_age_70plus
+```
+
+
+```{r}
+contact_5y_df %>%
+  mutate(
+    part_age_10y = ifelse(
+      part_age_5y %in% c("[70,75]", "[75,inf]"),
+      "[70,inf]",
+      paste0(
+        "[", floor((as.integer(str_extract(part_age_5y, "\\d+"))) %/% 10) * 10, ",",
+        floor((as.integer(str_extract(part_age_5y, "\\d+"))) %/% 10) * 10 + 10, "]")
+    ),
+    contact_age_10y = ifelse(
+      contact_age_5y %in% c("[70,75]", "[75,inf]"),
+      "[70,inf]",
+      paste0(
+        "[", floor((as.integer(str_extract(contact_age_5y, "\\d+"))) %/% 10) * 10, ",",
+        floor((as.integer(str_extract(contact_age_5y, "\\d+"))) %/% 10) * 10 + 10, "]")
+    ),
+  ) %>%
+  #select(part_age_10y, contact_age_10y, m_value) %>%
+  group_by(part_age_10y, contact_age_10y)
+```
+
+
+```{r}
+contact_10y_clean_df <- contact_5y_df %>%
+  mutate(
+    part_age_10y = ifelse(
+      part_age_5y %in% c("[70,75]", "[75,inf]"),
+      "[70,inf]",
+      paste0(
+        "[", floor((as.integer(str_extract(part_age_5y, "\\d+"))) %/% 10) * 10, ",",
+        floor((as.integer(str_extract(part_age_5y, "\\d+"))) %/% 10) * 10 + 10, "]")
+    ),
+    contact_age_10y = ifelse(
+      contact_age_5y %in% c("[70,75]", "[75,inf]"),
+      "[70,inf]",
+      paste0(
+        "[", floor((as.integer(str_extract(contact_age_5y, "\\d+"))) %/% 10) * 10, ",",
+        floor((as.integer(str_extract(contact_age_5y, "\\d+"))) %/% 10) * 10 + 10, "]")
+    ),
+  ) %>%
+  #select(part_age_10y, contact_age_10y, m_value) %>%
+  group_by(part_age_10y, contact_age_10y) %>%
+  summarise(
+    m11 = m_value[1],
+    m21 = m_value[3],
+    m12 = m_value[2],
+    m22 = m_value[4],
+    m_value_weighted = {
+      pop1 <- with(poptotal_5y_BRA_long, poptotal[AGEGROUP == first(contact_age_5y)])
+      pop2 <- with(poptotal_5y_BRA_long, poptotal[AGEGROUP == last(contact_age_5y)])
+      (pop1 / (pop1 + pop2)) * (m11+m21) + (pop2 / (pop2 + pop1)) * (m12+m22) 
+      }
+    )
+
+contact_10y_clean_df
+```
+
+
+```{r, fig.width = 14}
+contact_10y_clean_df %>%
+  ggplot(aes(part_age_10y, contact_age_10y)) +
+  geom_tile(aes(fill = m_value_weighted)) +
+  scale_fill_gradientn(colours = color_gradient) +
+  geom_text(aes(label = round(m_value_weighted, 2)), color = "red", size =5) +  # Add labels
+  theme_bw() +
+  theme(aspect.ratio = 1,
+        axis.text.x = element_text(angle = 45, hjust=1)) +
+  labs(title = "Contact Matrix Brazil",
+       x = "Age group of individual",
+       y = "Age group of contact")
+```
+
+### As matrix
+```{r}
+ContactMatrixBaselineAll <- matrix(contact_10y_clean_df$m_value_weighted, nrow = 8, ncol = 8)
+
+## R default matrix method uses column-major order and so does Stan.
+## The contact matrix file is in row-major-order (contact age groups, then participant age groups)
+## Hence, the raw contact matrix has to be transposed
+
+contactmatrix_unperturbed <- t(ContactMatrixBaselineAll)
+
+ContactMatrixBaselineAll
+saveRDS(contactmatrix_unperturbed, file = "data/contactmatrix_unperturbed")
+saveRDS(contactmatrix_unperturbed, file = "job/input/contactmatrix_unperturbed")
+```
+
+### normalised
+#### 5y
+```{r}
+lambda_5y <- max(abs(eigen(contact_5y_BRA_matrix)$values))
+lambda_5y
+
+max(abs(eigen(contact_5y_BRA_matrix)$values))/lambda_5y
+
+```
+
+```{r, fig.width = 14}
+contact_5y_df %>% 
+  ggplot(aes(part_age_5y, contact_age_5y)) +
+  geom_tile(aes(fill = m_value/lambda_5y)) +
+  scale_fill_gradientn(colours = color_gradient, limits=c(0,1)) +
+  geom_text(aes(label = round(m_value/lambda_5y, 2)), color = "red", size =5) +  # Add labels
+  theme_bw() +
+  theme(aspect.ratio = 1,
+        axis.text.x = element_text(angle = 45, hjust=1)) +
+  labs(title = "Contact Matrix Brazil",
+       x = "Age group of individual",
+       y = "Age group of contact")
+```
+
+
+#### 10y
+```{r}
+lambda_10y <- max(abs(eigen(contactmatrix_unperturbed)$values))
+lambda_10y
+
+max(abs(eigen(contactmatrix_unperturbed/lambda_10y)$values))
+
+
+contactmatrix_unperturbed_normalised <- contactmatrix_unperturbed / lambda_10y
+
+contactmatrix_unperturbed_normalised
+```
+
+```{r, fig.width = 14}
+contact_10y_clean_df %>%
+  ggplot(aes(part_age_10y, contact_age_10y)) +
+  geom_tile(aes(fill = m_value_weighted/lambda_10y)) +
+  scale_fill_gradientn(colours = color_gradient, limits = c(0,1)) +
+  geom_text(aes(label = round(m_value_weighted/lambda_10y, 2)), color = "red", size =5) +  # Add labels
+  theme_bw() +
+  theme(aspect.ratio = 1,
+        axis.text.x = element_text(angle = 45, hjust=1)) +
+  labs(title = "Contact Matrix Brazil",
+       x = "Age group of individual",
+       y = "Age group of contact")
+```
+
+```{r}
+contact_10y_clean_df %>%
+  group_by(part_age_10y) %>%
+  summarise(m = sum(m_value_weighted/lambda_10y))
+
+contact_10y_clean_df %>%
+  group_by(contact_age_10y) %>%
+  summarise(m = sum(m_value_weighted/lambda_10y))
+```
+
+
+```{r}
+saveRDS(contactmatrix_unperturbed_normalised, file = "data/contactmatrix_unperturbed_normalised")
+```
+
+
+
