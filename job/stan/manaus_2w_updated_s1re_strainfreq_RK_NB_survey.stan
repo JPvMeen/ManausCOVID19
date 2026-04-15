@@ -324,7 +324,7 @@ parameters {
 
   real<lower=0, upper=1> gamma; //recovery rate
 
-  real<lower=0, upper=1> log10_ifr1_slope;
+  real<lower=0> log10_ifr1_slope;
 
   real<lower=-3,upper=0> log10_ifr2_intercept; 
   real<lower=0, upper=1> log10_ifr2_slope;

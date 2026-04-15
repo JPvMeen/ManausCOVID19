@@ -22,7 +22,7 @@ Raw data are not provided in this repository. Data sources and proper citation a
 - `02`: Generate Stan models (stored in `job/stan/`)
 
 #### 1. Running the model
-All processed data required to run the model is found under `job/input/`. The required models are found under `job/stan/`
+All processed data required to run the model are found under `job/input/`. The required models are found under `job/stan/`
 Run 
 ```
 job/Manaus_stan_job_2w_updated_strainfreq_RK_NB_survey_forcedbetaifr.R
@@ -48,7 +48,7 @@ Our best fit and SIRS fit required for analyses are stored in `job/output`.
 If you use this code or model in your work, please cite:
 
 **[Authors]** (Year). *XXXXX*. GitHub repository.  
-Available at: https://github.com/[username]/[repository-name]
+Available at: https://github.com/JPvMeen/ManausCOVID19
 
 You may also cite the associated publication:
 
