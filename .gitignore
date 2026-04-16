@@ -1,4 +1,4 @@
-job/output/*
-!job/output/.gitkeep
+#job/output/*
+#!job/output/.gitkeep
 
 *.exe

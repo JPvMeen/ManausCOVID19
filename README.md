@@ -2,7 +2,7 @@
 This repository contains code and models to reproduce the analysis of COVID-19 transmission dynamics in Manaus using Bayesian inference implemented in Stan (2.33.1) using cmdstan r package (0.8.0). Model inference was done with R (4.3.1) using Rstudio (2023.06.2+561).
 
 Analyses were published as
-> van Meenen JP, van Dorp CH, de Boer RJ, van Boven M, [title]. [publisher]. [year]. [doi] 
+> **van Meenen JP, van Dorp CH, de Boer RJ, van Boven M**, *How prior immunity curtailed mortality from the SARS-CoV-2 Gamma P.1 wave in Manaus*. *[publisher]*. [year]. [doi] 
 
 ### Installation guide
 R Version 3.6.0 https://www.r-project.org/<br />
@@ -52,4 +52,4 @@ Available at: https://github.com/JPvMeen/ManausCOVID19
 
 You may also cite the associated publication:
 
-**[Authors]** (Year). *[Paper title]*. *[Journal]*. https://doi.org/[DOI]
+**[Authors]** (Year). *How prior immunity curtailed mortality from the SARS-CoV-2 Gamma P.1 wave in Manaus*. *[Journal]*. https://doi.org/[DOI]
