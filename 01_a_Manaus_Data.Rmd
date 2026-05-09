@@ -160,6 +160,11 @@ data_hospdeaths_wide
 tail(data_hospdeaths_wide)
 ```
 
+```{r}
+saveRDS(data_hospdeaths, "data/data_hospdeaths")
+```
+
+
 ### Cumulative
 ```{, fig.width=14, warning=FALSE, message=FALSE}
 lower_plot <- data_hospdeaths %>% 
@@ -496,6 +501,11 @@ stan_seroprevalence_data <- data_EightCities_agebin_extended %>%
 
 stan_seroprevalence_data
 ```
+
+```{r}
+saveRDS(stan_seroprevalence_data, "data/stan_seroprevalence_data")
+```
+
 
 ```{r}
 data_serosamples_wide <- stan_seroprevalence_data %>%

@@ -18,6 +18,13 @@ library(ggplot2)
 set_cmdstan_path(path = "C:/Users/JanPaul/Documents/.cmdstan/cmdstan-2.33.1")
 ```
 
+# Required data
+```{r}
+data_hospdeaths <- readRDS("data/data_hospdeaths")
+stan_seroprevalence_data <- readRDS("data/stan_seroprevalence_data")
+strain_frequency <- readRDS("data/strain_frequency")
+```
+
 # Fit
 ```{r} 
 manaus_model_2w_SIRS_updated <- cmdstan_model("job/stan/manaus_2w_updated_s1re_strainfreq_RK_NB_survey_SIRS.stan") 

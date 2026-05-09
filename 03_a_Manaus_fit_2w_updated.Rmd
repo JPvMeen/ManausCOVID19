@@ -22,6 +22,13 @@ set_cmdstan_path(path = "C:/Users/JanPaul/Documents/.cmdstan/cmdstan-2.33.1")
 agebin70_10y_levels <- c(paste0("[", seq(0, 60, by = 10), ",", seq(10, 70, by = 10), ")"), "70+")
 ```
 
+# Required data
+```{r}
+data_hospdeaths <- readRDS("data/data_hospdeaths")
+stan_seroprevalence_data <- readRDS("data/stan_seroprevalence_data")
+strain_frequency <- readRDS("data/strain_frequency")
+```
+
 
 # Fit
 ```{r, best fit} 
