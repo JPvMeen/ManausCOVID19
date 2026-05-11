@@ -13,8 +13,12 @@ cmdstanr R package Version 0.8.0 https://mc-stan.org/cmdstanr/<br />
 #### 0. Data processing steps 
 Raw data are not provided in this repository. Data sources and proper citation are described in the Materials and Methods section of the associated paper. 
 - `00`: Load the raw data
-- `01_a`: Prepare data for Stan
-- `01_b`: Convert 5-year binned contact matrix to 10-year bins
+- `01_a`: Prepare and process data, generating:
+	- `data/strain_frequency`
+	- `data/stan_seroprevalence_data`
+	- `data/data_hospdeaths`
+- `01_b`: Convert 5-year binned contact matrix to 10-year bins, generating:
+	- `data/contactmatrix_unperturbed_normalised`
 - `01_c`: Format all data for Stan, generating:
 	- `job/input/data_stan_Manaus_2w_strainfreq_survey.RDS` (model input data)
 	- `job/input/inits_list_2w_updated_strainfreq` (initial values)
@@ -47,9 +51,9 @@ Our best fit and SIRS fit required for analyses are stored in `job/output`.
 
 If you use this code or model in your work, please cite:
 
-**[Authors]** (Year). *XXXXX*. GitHub repository.  
+**van Meenen JP, van Dorp CH, de Boer RJ, van Boven M** (Year). *Repository for "How prior immunity curtailed mortality from the SARS-CoV-2 Gamma P.1 wave in Manaus"*. GitHub repository.  
 Available at: https://github.com/JPvMeen/ManausCOVID19
 
 You may also cite the associated publication:
 
-**[Authors]** (Year). *How prior immunity curtailed mortality from the SARS-CoV-2 Gamma P.1 wave in Manaus*. *[Journal]*. https://doi.org/[DOI]
+**van Meenen JP, van Dorp CH, de Boer RJ, van Boven M** (Year). *How prior immunity curtailed mortality from the SARS-CoV-2 Gamma P.1 wave in Manaus*. *[Journal]*. https://doi.org/[DOI]
