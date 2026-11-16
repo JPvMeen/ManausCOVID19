@@ -1,6 +1,6 @@
 #Packages
 ```{r}
-data_management_packages_to_install <- c("data.table", "tidyverse", "readxl", "yarrr", "ggplot2", "zoo", "ggdist", "ggbeeswarm", "GGally", "cowplot", "magick", "pdftools", "scales")
+data_management_packages_to_install <- c("data.table", "tidyverse", "readxl", "yarrr", "ggplot2", "zoo", "ggdist", "ggbeeswarm", "GGally", "cowplot", "magick", "pdftools", "scales", "viridis")
 
 packages_to_install <- c(data_management_packages_to_install)
 
@@ -15,15 +15,19 @@ for (package in packages_to_install) {
 
 ```{r}
 agebin70_10y_levels <- c(paste0("[", seq(0, 60, by = 10), ",", seq(10, 70, by = 10), ")"), "70+")
-color_to_age_map <- setNames(hex, agebin70_10y_levels)
+color_to_age_map <- setNames(viridisLite::viridis(length(agebin70_10y_levels)), agebin70_10y_levels)
 ```
 
 
 # Figure 1
 ## left
 ### a
+
 ```{r}
-alldata_excessDeaths <- read_excel("~/BIBC/General Research Profile/localrepo/GRP/data/excess_deaths_manaus_01apr2020_01may2021_compact.xlsx")
+setwd("~/Documents/Manaus/ManausCOVID19")
+file.exists("data/excess_deaths_manaus_01apr2020_01may2021_compact.xlsx")
+
+alldata_excessDeaths <- read_excel("data/excess_deaths_manaus_01apr2020_01may2021_compact.xlsx")
 data_excessDeaths <- alldata_excessDeaths %>% 
   filter(!is.na(Covid_period_excess_deaths)) %>%
   mutate(D = as.numeric(Covid_period_excess_deaths),
@@ -569,7 +573,8 @@ expression(">=1.40~S/C")
 Figure_1e <- data_EightCities_agebin %>%
   group_by(month) %>% #not agegroup
   mutate(date = median(donation_date)) %>%
-  summarise(date = date,
+  group_by(date) %>%
+  summarise(#date = date,
             n_samples = n(),
             seroprevalence_140 = sum(interpretation_140 == "Positive") / n_samples,
             seroprevalence_049 = sum(interpretation_049 == "Positive") / n_samples,
