@@ -1,0 +1,3293 @@
+#Packages
+```{r}
+data_management_packages_to_install <- c("data.table", "tidyverse", "readxl", "yarrr", "ggplot2", "zoo", "ggdist", "ggbeeswarm", "GGally", "cowplot", "magick", "pdftools", "scales", "viridis", "sysfonts","showtext","knitr","gtable", "ijtiff","ggtext")
+
+packages_to_install <- c(data_management_packages_to_install)
+
+# Check and install packages using a for loop
+for (package in packages_to_install) {
+  if (!requireNamespace(package, quietly = TRUE)) {
+    install.packages(package)
+  }
+  library(package, character.only = TRUE)
+}
+```
+
+# Formatting
+```{r}
+source("PLOS_formatting.R")
+```
+
+
+# Figure 1
+## left
+### a
+
+```{r}
+setwd("~/Documents/Manaus/ManausCOVID19")
+file.exists("data/excess_deaths_manaus_01apr2020_01may2021_compact.xlsx")
+
+alldata_excessDeaths <- read_excel("data/excess_deaths_manaus_01apr2020_01may2021_compact.xlsx")
+data_excessDeaths <- alldata_excessDeaths %>% 
+  filter(!is.na(Covid_period_excess_deaths)) %>%
+  mutate(D = as.numeric(Covid_period_excess_deaths),
+         date = as.Date(Covid_dates_2020_2021)
+        ) %>%
+  select(date, D)
+data_excessDeaths
+```
+
+```{r}
+library(zoo)
+rollingmin_excessdeaths_data <- alldata_excessDeaths %>%
+  rename(pub_piv_burials_cremats_2020_2021 = "2020_2021_pub_priv_burials_cremats") %>%
+  select(Covid_dates_2020_2021, 
+         pub_piv_burials_cremats_2020_2021,
+         PreCovid_deaths_adjusted
+         ) %>%
+  mutate(Covid_dates_2020_2021 = as.Date(Covid_dates_2020_2021),
+         PreCovid_deaths_15d_center_running_mean = rollapply(PreCovid_deaths_adjusted, 
+                                                            width = 15, 
+                                                            FUN = mean,
+                                                            align = "center", 
+                                                            fill = NA),
+         Covid_period_excess_deaths_mean = pub_piv_burials_cremats_2020_2021 - PreCovid_deaths_15d_center_running_mean,
+         PreCovid_deaths_7d_center_running_min = rollapply(PreCovid_deaths_adjusted, 
+                                                            width = 7, 
+                                                            FUN = min,
+                                                            align = "center", 
+                                                            fill = NA),
+         Covid_period_excess_deaths_min = pub_piv_burials_cremats_2020_2021 - PreCovid_deaths_7d_center_running_min,
+         FUN_diff = Covid_period_excess_deaths_min - Covid_period_excess_deaths_mean
+         ) 
+
+rollingmin_excessdeaths_data
+```
+
+
+```{r figure1-a, fig.width=FIG_WIDTH_IN/2, fig.height=FIG_WIDTH_IN/6}
+Figure_1a <- rollingmin_excessdeaths_data %>%
+  rename(date = Covid_dates_2020_2021) %>%
+  ggplot(aes(x = date)) +
+
+  geom_col(
+    aes(y = Covid_period_excess_deaths_mean),
+    width = 1,
+    fill = "lightgray"
+  ) +
+
+  geom_col(
+    data = data_hospdeaths %>%
+      rename(date = DT_EVOLUTION) %>%
+      mutate(
+        AGEGROUP = case_when(
+          AGEGROUP == "[70,inf]" ~ "70+",
+          TRUE ~ sub("\\]", ")", AGEGROUP)
+        )
+      ),
+    aes(y = count, fill = AGEGROUP),
+    width = 1
+  ) +
+
+  scale_fill_manual(
+    values = color_to_age_map,
+    name = "Age group"
+  ) +
+
+  scale_x_date(
+    date_breaks = "1 month",
+    limits = as.Date(c("2020-02-15", "2021-05-15")),
+    expand = c(0, 0),
+    labels = function(x) {
+      m <- format(x, "%m")
+      y <- format(x, "%y")
+
+      ifelse(
+        x == as.Date("2020-03-01"),
+        "Mar\n20",
+        ifelse(
+          m == "01",
+          paste0("Jan\n", y),
+          ifelse(
+            m %in% c("03", "05", "07", "09", "11"),
+            format(x, "%b"),
+            ""
+          )
+        )
+      )
+    }
+  ) +
+
+  scale_y_continuous(
+    limits = c(0, 200),
+    breaks = seq(0, 200, 50),
+    expand = expansion(mult = c(0.02, 0))
+  ) +
+
+  labs(
+    x = NULL,
+    y = "Daily deaths"
+  ) +
+
+  theme_pub +
+
+  guides(
+    fill = guide_legend(ncol = 1)
+  ) +
+
+  theme(
+    legend.position = "inside",
+    legend.position.inside = c(1, 1),
+    legend.justification = c("right", "top")
+  )
+
+Figure_1a
+```
+
+### b
+```{r figure1-b, fig.width=FIG_WIDTH_IN/2, fig.height=FIG_WIDTH_IN/6}
+Figure_1b <- strain_frequency_amazonas %>%
+  mutate(
+    date = date + 15,
+    lineage = case_when(
+      `Linhagens relevantes` == "B.1.1.28" ~ "B.1.1.28",
+      `Linhagens relevantes` == "B.1.1.33" ~ "B.1.1.33",
+      `Linhagens relevantes` == "P.1+P.1.* (Gama)" ~ "P.1",
+      `Linhagens relevantes` == "P.2" ~ "P.2",
+      TRUE ~ "B.1.195 & Others"
+    )
+  ) %>%
+  select(date, lineage, rel_freq) %>%
+  add_row(
+    date = as.Date("2020-02-01"),
+    lineage = "B.1.195 & Others",
+    rel_freq = 1
+  ) %>%
+  mutate(
+    lineage = factor(
+      lineage,
+      levels = c(
+        "B.1.195 & Others",
+        "B.1.1.33",
+        "B.1.1.28",
+        "P.2",
+        "P.1"
+      )
+    )
+  ) %>%
+  group_by(date, lineage) %>%
+  summarise(
+    rel_freq = sum(rel_freq),
+    .groups = "drop"
+  ) %>%
+  complete(
+    date, lineage,
+    fill = list(rel_freq = 0)
+  ) %>%
+  group_by(lineage) %>%
+  mutate(
+    first_nonzero = min(date[rel_freq > 0], na.rm = TRUE),
+    smoothing_start = max(
+      date[date < first_nonzero],
+      na.rm = TRUE
+    ),
+    smoothing_start = case_when(
+      smoothing_start == -Inf ~ min(date),
+      TRUE ~ smoothing_start
+    )
+  ) %>%
+  group_by(lineage) %>%
+  complete(
+    date = seq(min(date), max(date), by = "day")
+  ) %>%
+  fill(
+    first_nonzero, smoothing_start,
+    .direction = "downup"
+  ) %>%
+  mutate(
+    rel_freq = ifelse(date < smoothing_start, 0, rel_freq),
+    rel_freq = pmax(
+      zoo::na.approx(rel_freq, x = date),
+      0
+    )
+  ) %>%
+  fill(rel_freq, .direction = "downup") %>%
+  ungroup() %>%
+
+  ggplot(
+    aes(x = date, fill = lineage, colour = lineage)
+  ) +
+
+  geom_area(
+    aes(y = rel_freq),
+    position = "fill",
+    alpha = 0.8,
+    linewidth = 0,
+    linetype = 0
+  ) +
+
+  geom_point(
+    data = strain_frequency %>%
+      mutate(
+        fraction = positive / number,
+        lineage = "P.1"
+      ),
+    aes(y = fraction),
+    size = 0.6
+  ) +
+
+  geom_errorbar(
+    data = strain_frequency %>%
+      mutate(
+        fraction = positive / number,
+        lineage = "P.1"
+      ),
+    aes(
+      ymin = mapply(
+        function(x, n) binom.test(x, n)$conf.int[1],
+        positive, number
+      ),
+      ymax = mapply(
+        function(x, n) binom.test(x, n)$conf.int[2],
+        positive, number
+      )
+    ),
+    width = 5,
+    linewidth = 0.3
+  ) +
+
+  scale_x_date(
+    date_breaks = "1 month",
+    limits = as.Date(c("2020-02-15", "2021-05-15")),
+    expand = c(0, 0),
+    labels = function(x) {
+      m <- format(x, "%m")
+      y <- format(x, "%y")
+
+      ifelse(
+        x == as.Date("2020-03-01"),
+        "Mar\n20",
+        ifelse(
+          m == "01",
+          paste0("Jan\n", y),
+          ifelse(
+            m %in% c("03", "05", "07", "09", "11"),
+            format(x, "%b"),
+            ""
+          )
+        )
+      )
+    }
+  ) +
+
+  scale_fill_manual(
+    name = "Lineage",
+    values = c(
+      "B.1.195 & Others" = "#56B4E9",
+      "B.1.1.28" = "#F0E442",
+      "B.1.1.33" = "#009E73",
+      "P.2" = "#E69F00",
+      "P.1" = "#D55E00"
+    ),
+    breaks = c(
+      "B.1.1.28",
+      "B.1.1.33",
+      "B.1.195 & Others",
+      "P.1",
+      "P.2"
+    )
+  ) +
+
+  scale_colour_manual(
+    name = "Lineage",
+    values = c(
+      "B.1.195 & Others" = "#56B4E9",
+      "B.1.1.28" = "#F0E442",
+      "B.1.1.33" = "#009E73",
+      "P.2" = "#E69F00",
+      "P.1" = "black"
+    ),
+    breaks = c(
+      "B.1.1.28",
+      "B.1.1.33",
+      "B.1.195 & Others",
+      "P.1",
+      "P.2"
+    )
+  ) +
+
+  scale_y_continuous(
+    limits = c(0, 1),
+    breaks = seq(0, 1, 0.25),
+    labels = function(x) x * 100,
+    expand = c(0, 0)
+  ) +
+
+  labs(
+    x = NULL,
+    y = "Relative frequency (%)"
+  ) +
+
+  theme_pub +
+
+  guides(
+    fill = guide_legend(
+      nrow = 1,
+      title.position = "left"
+    )
+  ) +
+
+  theme(
+    legend.position = "bottom",
+    legend.direction = "horizontal"
+  )
+
+Figure_1b
+```
+
+
+### c
+```{r figure1-c, fig.width=FIG_WIDTH_IN/2, fig.height=FIG_WIDTH_IN/6}
+Figure_1c <- mobility_manaus %>%
+  filter(mobility == "transit_stations") %>%
+  ggplot(aes(x = date)) +
+
+  geom_hline(
+    yintercept = 0,
+    colour = "gray47",
+    linewidth = 0.25
+  ) +
+
+  geom_line(
+    aes(y = changes),
+    colour = "black",
+    linewidth = 0.6,
+    alpha = 0.6,
+    lineend = "round"
+  ) +
+
+  geom_line(
+    aes(y = rolling_mean),
+    colour = "black",
+    linewidth = 0.6,
+    lineend = "round"
+  ) +
+
+  annotate(
+    "segment",
+    x = as.Date("2020-09-25"),
+    xend = as.Date("2020-09-25"),
+    y = 0,
+    yend = 65,
+    colour = "gray47",
+    linewidth = 0.3,
+    linetype = "dashed"
+  ) +
+
+  annotate(
+    "text",
+    x = as.Date("2020-09-25") - 5,
+    y = 60,
+    label = "Return of face-to-face classes",
+    hjust = 1,
+    colour = "black",
+    family = BASE_FAM,
+    size = font_pt("small") / ggplot2::.pt
+  ) +
+
+  scale_x_date(
+    date_breaks = "1 month",
+    limits = as.Date(c("2020-02-15", "2021-05-15")),
+    expand = c(0, 0),
+    labels = function(x) {
+      m <- format(x, "%m")
+      y <- format(x, "%y")
+
+      ifelse(
+        x == as.Date("2020-03-01"),
+        "Mar\n20",
+        ifelse(
+          m == "01",
+          paste0("Jan\n", y),
+          ifelse(
+            m %in% c("03", "05", "07", "09", "11"),
+            format(x, "%b"),
+            ""
+          )
+        )
+      )
+    }
+  ) +
+
+  scale_y_continuous(
+    breaks = c(-75, -50, -25, 0, 25, 50, 75),
+    labels = c("-75", "", "", "0", "", "", "75"),
+    expand = c(0, 0)
+  ) +
+
+  coord_cartesian(ylim = c(-75, 75)) +
+
+  labs(
+    x = NULL,
+    y = "Relative mobility (%)"
+  ) +
+
+  theme_pub
+
+Figure_1c
+```
+
+```{r, fig.width=FIG_WIDTH_IN/2, fig.height=FIG_WIDTH_IN/2}
+Figure_1_left <- cowplot::plot_grid(
+  Figure_1a +
+    theme(
+      axis.text.x = element_blank(),
+      axis.title.x = element_blank(),
+      axis.ticks.x = element_blank(),
+      axis.line.x = element_blank()
+    ),
+
+  Figure_1b +
+    theme(
+      axis.text.x = element_blank(),
+      axis.title.x = element_blank(),
+      axis.ticks.x = element_blank(),
+      axis.line.x = element_blank()
+    ),
+
+  Figure_1c,
+
+  ncol = 1,
+  align = "v",
+  axis = "lr",
+  rel_heights = c(1, 1, 1),
+
+  labels = c("A", "B", "C"),
+  label_size = font_pt("panel"),
+  label_fontfamily = BASE_FAM,
+  label_fontface = "bold",
+  label_x = 0,
+  label_y = 1,
+  hjust = 0,
+  vjust = 1
+)
+
+Figure_1_left
+```
+
+## right
+### d
+```{r figure1-d, fig.width=FIG_WIDTH_IN/2, fig.height=FIG_WIDTH_IN/4}
+Figure_1d <- data_EightCities_agebin %>%
+  mutate(
+    result_color = case_when(
+      result >= 1.40 ~ "Pos",
+      result > 0.49 ~ "Pos_ind",
+      result > 0.1 ~ "Neg_ind",
+      result <= 0.1 ~ "Neg"
+    ),
+    result_color = factor(
+      result_color,
+      levels = c("Pos", "Pos_ind", "Neg_ind", "Neg")
+    )
+  ) %>%
+  group_by(month) %>%
+  mutate(date = median(donation_date)) %>%
+  ungroup() %>%
+  ggplot(
+    aes(x = date, y = result, colour = result_color)
+  ) +
+
+  geom_hline(
+    yintercept = c(0.1, 0.49, 1.4),
+    linetype = "dashed",
+    linewidth = 0.4,
+    colour = "gray47"
+  ) +
+
+  ggbeeswarm::geom_quasirandom(
+    #alpha = 0.8,
+    varwidth = TRUE,
+    size = 0.6,
+    stroke = 0
+  ) +
+
+  scale_x_date(
+    date_breaks = "1 month",
+    limits = as.Date(c("2020-02-16", "2021-03-24")),
+    expand = c(0, 0),
+    labels = function(x) {
+      m <- format(x, "%m")
+      y <- format(x, "%y")
+
+      ifelse(
+        x == as.Date("2020-03-01"),
+        "Mar\n20",
+        ifelse(
+          m == "01",
+          paste0("Jan\n", y),
+          ifelse(
+            m %in% c("03", "05", "07", "09", "11"),
+            format(x, "%b"),
+            ""
+          )
+        )
+      )
+    }
+  ) +
+
+  scale_y_log10(
+    breaks = c(0.01, 0.1, 0.49, 1.4, 10),
+    labels = c("0.01", "0.10", "0.49", "1.40", "10.00"),
+    expand = c(0, 0)
+  ) +
+
+  scale_colour_manual(
+    values = c(
+      "Pos" = "#00B0F6",
+      "Pos_ind" = "lightseagreen",
+      "Neg_ind" = "orange",
+      "Neg" = "pink"
+    )
+  ) +
+
+  labs(
+    x = NULL,
+    y = "anti-N SARS-CoV-2 IgG CIMA S/C"
+  ) +
+
+  theme_pub +
+
+  theme(
+    legend.position = "none"
+  )
+
+Figure_1d
+```
+
+### e
+```{r figure1-e, fig.width=FIG_WIDTH_IN/2, fig.height=FIG_WIDTH_IN/4}
+Figure_1e <- data_EightCities_agebin %>%
+  group_by(month) %>%
+  mutate(date = median(donation_date)) %>%
+  summarise(
+    date = first(date),
+    n_samples = n(),
+    seroprevalence_140 =
+      sum(interpretation_140 == "Positive") / n_samples,
+    seroprevalence_049 =
+      sum(interpretation_049 == "Positive") / n_samples,
+    seroprevalence_010 =
+      sum(interpretation_010 == "Positive") / n_samples,
+    .groups = "drop"
+  ) %>%
+  ggplot(aes(x = date)) +
+
+  geom_point(
+    aes(y = seroprevalence_049, colour = "c049"),
+    size = 1,
+    stroke = 0.1
+  ) +
+  geom_point(
+    aes(y = seroprevalence_140, colour = "c140"),
+    size = 1,
+    stroke = 0.1
+  ) +
+  geom_point(
+    aes(y = seroprevalence_010, colour = "c010"),
+    size = 1,
+    stroke = 0.1
+  ) +
+
+  geom_line(
+    aes(y = seroprevalence_049, colour = "c049"),
+    linewidth = 0.4
+  ) +
+  geom_line(
+    aes(y = seroprevalence_140, colour = "c140"),
+    linewidth = 0.4
+  ) +
+  geom_line(
+    aes(y = seroprevalence_010, colour = "c010"),
+    linewidth = 0.4
+  ) +
+
+  scale_x_date(
+    date_breaks = "1 month",
+    limits = as.Date(c("2020-02-16", "2021-03-24")),
+    expand = c(0, 0),
+    labels = function(x) {
+      m <- format(x, "%m")
+      y <- format(x, "%y")
+
+      ifelse(
+        x == as.Date("2020-03-01"),
+        "Mar\n20",
+        ifelse(
+          m == "01",
+          paste0("Jan\n", y),
+          ifelse(
+            m %in% c("03", "05", "07", "09", "11"),
+            format(x, "%b"),
+            ""
+          )
+        )
+      )
+    }
+  ) +
+
+  scale_y_continuous(
+    limits = c(0, 0.8),
+    breaks = seq(0, 0.8, 0.1),
+    labels = function(x) x * 100,
+    expand = c(0, 0)
+  ) +
+
+  scale_colour_manual(
+    name = NULL,
+    values = c(
+      "c140" = "#00B0F6",
+      "c049" = "lightseagreen",
+      "c010" = "orange"
+    ),
+    breaks = c("c010", "c049", "c140"),
+    labels = c(
+      "≥ 0.10 S/C",
+      "≥ 0.49 S/C",
+      "≥ 1.40 S/C"
+    )
+  ) +
+
+  labs(
+    x = NULL,
+    y = "Seroprevalence based on S/C cutoff (%)"
+  ) +
+
+  theme_pub +
+
+  guides(
+    colour = guide_legend(
+      override.aes = list(size = 1.8)
+    )
+  ) +
+
+  theme(
+    legend.title = element_blank(),
+    legend.position = "inside",
+    legend.position.inside = c(0.99, 0.02),
+    legend.justification = c("right", "bottom"),
+    legend.key = element_rect(fill = "transparent", colour = NA)
+  )
+
+Figure_1e
+```
+
+
+```{r, fig.width = FIG_WIDTH_IN/2, fig.height = FIG_WIDTH_IN/2, warning = FALSE}
+Figure_1_right <- cowplot::plot_grid(
+  Figure_1d +
+    theme(
+      axis.text.x = element_blank(),
+      axis.title.x = element_blank(),
+      axis.ticks.x = element_blank(),
+      axis.line.x = element_blank()
+    ),
+
+  Figure_1e,
+
+  ncol = 1,
+  align = "v",
+#  axis = "lr",
+  rel_heights = c(1, 1),
+
+  labels = c("D", "E"),
+  label_size = font_pt("panel"),
+  label_fontfamily = BASE_FAM,
+  label_fontface = "bold",
+  label_x = 0,
+  label_y = 1,
+  hjust = 0,
+  vjust = 1.5
+)
+
+Figure_1_right
+```
+
+```{r figure1-preview, fig.width=FIG_WIDTH_IN, fig.height=FIG_WIDTH_IN/2, dpi=EXPORT_DPI}
+Figure_1 <- plot_grid(Figure_1_left, Figure_1_right, align = "vh", axis="bt")
+Figure_1
+```
+
+
+
+```{r}
+save_plos(
+  plot = Figure_1,
+  filename = "PDF/Fig1",
+  width_cm = in_to_cm(FIG_WIDTH_IN),
+  aspect = 0.65,
+  dpi = EXPORT_DPI,
+  formats = c("pdf"),
+  overwrite = TRUE
+)
+```
+
+
+#Figure 2
+## top
+### a
+```{r, fig.width=FIG_WIDTH_IN, fig.height=FIG_WIDTH_IN/2}
+Figure_2a <- list()
+
+agegroups_2a <- unique(
+  as.character(
+    manaus_2w_simp_hospdeaths_predictions_with_data$AGEGROUP
+  )
+)
+
+for (agegroup in agegroups_2a) {
+
+  df_age <- manaus_2w_simp_hospdeaths_predictions_with_data %>%
+    filter(AGEGROUP == agegroup)
+
+  Figure_2a_subplot <- ggplot(df_age, aes(x = date)) +
+
+    # Simulated hospital deaths
+    geom_ribbon(
+      data = df_age %>%
+        filter(state == "simulated_hospdeaths"),
+      aes(
+        ymin = q05,
+        ymax = q95,
+        fill = AGEGROUP
+      ),
+      alpha = 0.2
+    ) +
+
+    # Observed hospital deaths
+    geom_point(
+      data = df_age %>%
+        filter(state == "data_hospdeaths"),
+      aes(
+        y = q50,
+        colour = AGEGROUP
+      ),
+      size = 0.4
+    ) +
+    
+    # Expected hospital deaths
+    geom_ribbon(
+      data = df_age %>%
+        filter(state == "expected_hospdeaths"),
+      aes(
+        ymin = q05,
+        ymax = q95,
+        fill = AGEGROUP,
+        colour = AGEGROUP
+      ),
+      alpha = 0.3,
+      linewidth = 0.2
+    ) +
+
+    geom_line(
+      data = df_age %>%
+        filter(state == "expected_hospdeaths"),
+      aes(y = q50),
+      linewidth = 0.4
+    ) +
+
+    scale_colour_manual(values = color_to_age_map) +
+    scale_fill_manual(values = color_to_age_map) +
+
+    scale_x_date(
+      date_breaks = "1 month",
+      limits = as.Date(c("2020-03-01", "2021-05-01")),
+      expand = c(0, 0),
+      labels = function(x) {
+        m <- format(x, "%m")
+        y <- format(x, "%y")
+
+        ifelse(
+          x == as.Date("2020-03-01"),
+          "Mar\n20",
+          ifelse(
+            m == "01",
+            paste0("Jan\n", y),
+            ifelse(
+              m %in% c("03", "05", "07", "09", "11"),
+              format(x, "%b"),
+              ""
+            )
+          )
+        )
+      }
+    ) +
+
+    scale_y_continuous(
+      expand = c(0, 0)
+    ) +
+
+    labs(
+      x = NULL,
+      y = "Hospital deaths"
+    ) +
+
+    # One age-group label per subplot
+    geom_text(
+      aes(label = AGEGROUP, x = (min(date) + (max(date) - min(date))/2)), 
+      y = Inf, 
+      vjust = 1.5, 
+      family = BASE_FAM,
+      size = font_pt("small") / ggplot2::.pt,
+      check_overlap = TRUE) + 
+
+    theme_pub +
+
+    theme(
+      legend.position = "none",
+      axis.title.x = element_blank(),
+      plot.margin = margin(
+        t = 0, r = 1, b = 0, l = 0,
+        unit = "pt"
+      )
+    )
+
+  Figure_2a[[agegroup]] <- Figure_2a_subplot
+}
+
+# Retain the original ordering
+Figure_2a <- unname(Figure_2a[agegroups_2a])
+
+stopifnot(length(Figure_2a) == 8L)
+
+# Only the middle-left subplot needs the y-axis title
+for (i in setdiff(seq_along(Figure_2a), 4)) {
+  Figure_2a[[i]] <- Figure_2a[[i]] +
+    theme(axis.title.y = element_blank())
+}
+
+for(i in c(1,2,3,5,6,7,8) ) {
+  Figure_2a[[i]] <- Figure_2a[[i]] +
+    theme(
+      axis.title.y = element_blank()
+    )
+}
+
+for(i in 6:8 ) {
+  Figure_2a[[i]] <- Figure_2a[[i]] +
+    theme(
+      plot.margin = margin(0, r=8, 0, 0, "pt"),
+    )
+}
+
+for(i in 1:3 ) {
+  Figure_2a[[i]] <- Figure_2a[[i]] +
+    theme(
+      plot.margin = margin(t=4, 0, 0, 0, "pt"),
+    )
+}
+
+
+
+for(i in 1:5) {
+  Figure_2a[[i]] <- Figure_2a[[i]] +
+    theme(
+      axis.title.x = element_blank(),
+      axis.text.x  = element_blank(),
+      axis.ticks.x = element_blank(),
+      axis.line.x  = element_blank(),
+      axis.ticks.length.x = unit(0, "pt")
+    )
+}
+
+# Preview
+Figure_2a_top <- cowplot::plot_grid(
+  plotlist = Figure_2a,
+  ncol = 3,
+  align = "hv",
+  axis = "lb"
+)
+
+Figure_2a_top
+```
+### c
+```{r, fig.width=FIG_WIDTH_IN/3, fig.height=FIG_WIDTH_IN/5}
+Figure_2c <- manaus_2w_simp_phylo_predictions_data %>%
+  ggplot(aes(x = date)) +
+
+  # Simulated phylogenetic data
+  geom_ribbon(
+    data = . %>%
+      filter(state == "simulated_phylodata"),
+    aes(
+      ymin = q05 / number,
+      ymax = q95 / number
+    ),
+    alpha = 0.2
+  ) +
+  
+  # Observed lineage frequencies
+  geom_point(
+    data = . %>%
+      filter(state == "data_phylo"),
+    aes(
+      y = q50 / number,
+      size = number
+    )
+  ) +
+
+  # Expected phylogenetic data
+  geom_ribbon(
+    data = . %>%
+      filter(state == "expected_phylodata"),
+    aes(
+      ymin = q05 / number,
+      ymax = q95 / number
+    ),
+    alpha = 0.4
+  ) +
+
+  geom_line(
+    data = . %>%
+      filter(state == "expected_phylodata"),
+    aes(y = q50 / number),
+    linewidth = 0.4,
+    colour = "black"
+  ) +
+
+  scale_x_date(
+    date_breaks = "1 month",
+    limits = as.Date(c("2020-05-01", "2021-01-10")),
+    expand = c(0, 0),
+    labels = function(x) {
+      m <- format(x, "%m")
+      y <- format(x, "%y")
+
+      ifelse(
+        x == as.Date("2020-05-01"),
+        "May\n20",
+        ifelse(
+          m == "01",
+          paste0("Jan\n", y),
+          ifelse(
+            m %in% c("03", "05", "07", "09", "11"),
+            format(x, "%b"),
+            ""
+          )
+        )
+      )
+    }
+  ) +
+
+  scale_y_continuous(
+    limits = c(0, 1),
+    breaks = seq(0, 1, 0.25),
+    labels = function(x) x * 100,
+    expand = c(0, 0)
+  ) +
+
+  scale_size_continuous(
+    limits = c(1, 50),
+    breaks = c(1, 10, 25, 50),
+    range = c(0.2, 1.5)
+  ) +
+
+  labs(
+    x = NULL,
+    y = "P.1 (%)",
+    size = "Sample size"
+  ) +
+
+  theme_pub +
+
+  theme(
+    legend.position = "right",
+    plot.margin = margin(
+      t = 8, r = 0, b = 0, l = 4,
+      unit = "pt"
+    )
+  )
+
+Figure_2c
+```
+
+```{r, fig.width=FIG_WIDTH_IN, fig.height=FIG_WIDTH_IN/2}
+
+aligned_2a_final <- cowplot::align_plots(
+  Figure_2a[[1]], Figure_2a[[2]], Figure_2a[[3]],
+  Figure_2a[[4]], Figure_2a[[5]], Figure_2a[[6]],
+  Figure_2a[[7]], Figure_2a[[8]],
+  align = "hv",
+  axis = "tlbr"
+)
+
+for(i in 1:8){
+  Figure_2a[[i]] <- aligned_2a_final[[i]]
+}
+
+Figure_2_top <- plot_grid(
+  plot_grid(Figure_2a[[1]], Figure_2a[[2]], Figure_2a[[3]], ncol = 3),
+  plot_grid(Figure_2a[[4]], Figure_2a[[5]], Figure_2a[[6]], ncol = 3),
+  plot_grid(
+    plot_grid(Figure_2a[[7]], Figure_2a[[8]]), 
+    Figure_2c, ncol = 2, rel_widths = c(2,1),
+    labels = c("", "C"),   
+    label_size = font_pt("panel"),
+    label_fontfamily = BASE_FAM,
+    label_fontface = "bold",
+    label_x = 0,
+    label_y = 1,
+    hjust = 0,
+    vjust = 1
+  ),
+  ncol = 1
+)
+
+Figure_2_top
+```
+
+## bottom
+### b
+```{r, fig.width=FIG_WIDTH_IN, fig.height=FIG_WIDTH_IN/2}
+Figure_2b <- manaus_2w_simp_sero_predictions_data %>%
+  mutate(
+    AGEGROUP = case_when(
+      AGEGROUP == "[70,inf]" ~ "70+",
+      AGEGROUP == "[70+]" ~ "70+",
+      TRUE ~ sub("\\]", ")", AGEGROUP)
+    )
+  ) %>%
+
+  ggplot(aes(x = median_date)) +
+
+  # Simulated seroprevalence
+  geom_ribbon(
+    data = . %>%
+      filter(state == "simulated_serodata"),
+    aes(
+      ymin = q05 / SampleSize,
+      ymax = q95 / SampleSize,
+      fill = AGEGROUP
+    ),
+    alpha = 0.2
+  ) +
+  
+  # Observed seroprevalence
+  geom_point(
+    data = . %>%
+      filter(state == "data_sero"),
+    aes(
+      y = q50 / SampleSize,
+      colour = AGEGROUP,
+      size = SampleSize
+    )
+  ) +
+
+  # Expected seroprevalence
+  geom_ribbon(
+    data = . %>%
+      filter(state == "expected_serodata"),
+    aes(
+      ymin = q05 / SampleSize,
+      ymax = q95 / SampleSize,
+      fill = AGEGROUP,
+      colour = AGEGROUP
+    ),
+    alpha = 0.3,
+    linewidth = 0.2
+  ) +
+
+  geom_line(
+    data = . %>%
+      filter(state == "expected_serodata"),
+    aes(y = q50 / SampleSize),
+    linewidth = 0.4
+  ) +
+
+  geom_text(
+      aes(label = AGEGROUP, x = (min(median_date) + (max(median_date) - min(median_date))/2)),
+      y = Inf,
+      vjust = 1.5,
+      family = BASE_FAM,
+      size = font_pt("small") / ggplot2::.pt,
+      check_overlap = TRUE
+    ) +
+  
+  scale_x_date(
+    date_breaks = "1 month",
+    limits = c(as.Date("2020-03-01"), NA),
+    expand = c(0, 0),
+    labels = function(x) {
+      m <- format(x, "%m")
+      y <- format(x, "%y")
+
+      ifelse(
+        x == as.Date("2020-03-01"),
+        "Mar\n20",
+        ifelse(
+          m == "01",
+          paste0("Jan\n", y),
+          ifelse(
+            m %in% c("03", "05", "07", "09", "11"),
+            format(x, "%b"),
+            ""
+          )
+        )
+      )
+    }
+  ) +
+
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.03)),
+    labels = function(x) x * 100
+  ) +
+
+  scale_colour_manual(
+    values = color_to_age_map
+  ) +
+
+  scale_fill_manual(
+    values = color_to_age_map
+  ) +
+
+  scale_size_continuous(
+    range = c(0.2, 1.5),
+    name = "Sample size"
+  ) +
+
+  facet_wrap(
+    ~AGEGROUP,
+    scales = "free_y"
+  ) +
+
+  guides(
+    size = guide_legend(
+      title = "Sample size",
+      override.aes = list(colour = "black")
+    ),
+    colour = "none",
+    fill = "none"
+  ) +
+
+  labs(
+    x = NULL,
+    y = "Seroprevalence (%)"
+  ) +
+
+  theme_pub +
+
+  theme(
+    # Compact facet layout
+    panel.spacing = grid::unit(6, "pt"),
+
+    # Age-group labels
+    strip.placement = "inside",
+    strip.text = element_blank(),
+    strip.background = element_blank(),
+
+    legend.position = "right",
+
+    plot.margin = margin(
+      t = 8, r = 0, b = 0, l = 8,
+      unit = "pt"
+    )
+  )
+
+Figure_2b
+```
+
+```{r, fig.width=FIG_WIDTH_IN, fig.height=FIG_WIDTH_IN/2}
+Figure_2 <- cowplot::plot_grid(
+  Figure_2_top,
+  Figure_2b,
+  ncol = 1,
+  rel_heights = c(3, 2),
+  labels = c("A", "B"),
+  label_size = font_pt("panel"),
+  label_fontfamily = BASE_FAM,
+  label_fontface = "bold",
+  label_x = 0,
+  label_y = 1,
+  hjust = 0,
+  vjust = 1
+)
+
+Figure_2
+```
+
+```{r}
+save_plos(
+  plot = Figure_2,
+  filename = "PDF/Fig2",
+  width_cm = in_to_cm(FIG_WIDTH_IN),
+  aspect = 0.7,
+  dpi = EXPORT_DPI,
+  formats = "pdf",
+  overwrite = TRUE
+)
+```
+
+
+#Figure 3
+#Color palette 2
+```{r}
+library(scales)
+library(viridis)
+#extract hex color codes for a plot with three elements in ggplot2 
+hex_2 <- palette.colors(palette = "Okabe-Ito")
+
+#display hex color codes
+hex_2
+
+show_col(hex_2)
+```
+
+## Top
+### a
+```{r, fig.width=FIG_WIDTH_IN/2, fig.height=FIG_WIDTH_IN/3}
+set.seed(10)
+
+simulations_3a <- sample(
+  unique(ifr_manaus_2w_updated_draws_df$simulation),
+  size = min(
+    100,
+    length(unique(ifr_manaus_2w_updated_draws_df$simulation))
+  )
+)
+
+Figure_3a <- ifr_manaus_2w_updated_draws_df %>%
+  mutate(
+    AGEGROUP = case_when(
+      AGEGROUP == "[70,inf]" ~ "70+",
+      AGEGROUP == "[70+]" ~ "70+",
+      TRUE ~ sub("\\]", ")", AGEGROUP)
+    ),
+    parameter = factor(
+      parameter,
+      levels = c("ifr1_re", "ifr2_re", "ifr1", "ifr2")
+    )
+  ) %>%
+  filter(simulation %in% simulations_3a) %>%
+
+  ggplot(aes(x = AGEGROUP)) +
+
+  geom_line(
+    aes(
+      y = value * 100,
+      group = interaction(simulation, parameter),
+      colour = parameter
+    ),
+    alpha = 0.1,
+    linewidth = 0.3
+  ) +
+
+  scale_y_log10(
+    limits = c(1e-9, 2e-1) * 100,
+    breaks = c(
+      1e-9, 1e-8, 1e-7, 1e-6, 1e-5,
+      1e-4, 1e-3, 1e-2, 1e-1, 2e-1
+    ) * 100,
+    labels = c(
+      "0.0000001", "0.000001", "0.00001",
+      "0.0001", "0.001", "0.01",
+      "0.1", "1", "10", "20"
+    ),
+    expand = c(0, 0)
+  ) +
+
+  scale_x_discrete(
+    expand = expansion(mult = c(0, 0))
+  ) +
+
+  scale_colour_manual(
+    values = c(
+      "ifr1"    = "#0072B2",
+      "ifr1_re" = "#56B4E9",
+      "ifr2"    = "#D55E00",
+      "ifr2_re" = "#E69F00"
+    ),
+    breaks = c("ifr1", "ifr1_re", "ifr2", "ifr2_re"),
+    labels = c(
+      "ifr1"    = expression(IFR[1]),
+      "ifr1_re" = expression(IFR[1]^"'"),
+      "ifr2"    = expression(IFR[2]),
+      "ifr2_re" = expression(IFR[2]^"'")
+    )
+  ) +
+
+  labs(
+    x = "Age group",
+    y = "Estimated IFR (%)"
+  ) +
+
+  guides(
+    colour = guide_legend(
+      override.aes = list(
+        alpha = 1,
+        linewidth = 0.6
+      )
+    )
+  ) +
+
+  coord_cartesian(
+    ylim = c(1e-7, 2e-1) * 100
+  ) +
+
+  theme_pub +
+
+  theme(
+    legend.title = element_blank(),
+    legend.position = "inside",
+    legend.position.inside = c(1, 0.01),
+    legend.justification = c("right", "bottom"),
+    legend.key = element_rect(fill = "transparent", colour = NA),
+    legend.text = element_text(
+      family = "sans",
+      size = font_pt("legend")
+    ),
+    plot.margin = margin(r=8,b=8,l=10, "pt")
+  ) 
+
+Figure_3a
+```
+
+```{r}
+# Convert Figure 3A to a grob
+g3a <- ggplot2::ggplotGrob(Figure_3a)
+
+# Locate the left y-axis
+axis_idx <- grep("^axis-l", g3a$layout$name)[1]
+
+# Extract the axis label text grob
+axis_text <- g3a$grobs[[axis_idx]]$
+  children$axis$grobs[[2]]$children[[1]]
+
+# Check that we have the correct labels
+axis_text$label
+
+# Keep the default centre alignment for all labels
+axis_text$vjust <- rep(0.5, length(axis_text$label))
+
+# Bottom-align only the "20" label
+axis_text$vjust[axis_text$label == "10"] <- 0.6
+axis_text$vjust[axis_text$label == "20"] <- 0.1
+
+# Insert the modified text grob
+g3a$grobs[[axis_idx]]$
+  children$axis$grobs[[2]]$children[[1]] <- axis_text
+```
+
+
+### b
+```{r, fig.width=FIG_WIDTH_IN/2, fig.height=FIG_WIDTH_IN/3}
+Figure_3b <- beta_manaus_2w_updated_draws_df %>%
+  ggplot() +
+
+  geom_density(
+    aes(
+      x = value,
+      fill = parameter,
+      colour = parameter
+    ),
+    alpha = 0.2,
+    linewidth = 0.4
+  ) +
+
+  scale_x_continuous(
+    expand = c(0, 0),
+    limits = c(0.15, 0.35),
+    breaks = seq(0.15, 0.35, by = 0.05),
+    name = "Value"
+  ) +
+
+  scale_y_continuous(
+    expand = c(0, 0),
+    limits = c(0, NA),
+    breaks = 0,
+    name = "Density"
+  ) +
+
+  scale_colour_manual(
+    values = c(
+      "beta1"    = "#0072B2",
+      "beta1_re" = "#56B4E9",
+      "beta2"    = "#D55E00",
+      "beta2_re" = "#E69F00"
+    ),
+    breaks = c("beta1", "beta1_re", "beta2", "beta2_re"),
+    labels = c(
+      "beta1"    = expression(beta[1]^phantom("'")),
+      "beta1_re" = expression(beta[1]^"'"),
+      "beta2"    = expression(beta[2]^phantom("'")),
+      "beta2_re" = expression(beta[2]^"'")
+    )
+  ) +
+
+  scale_fill_manual(
+    values = c(
+      "beta1"    = "#0072B2",
+      "beta1_re" = "#56B4E9",
+      "beta2"    = "#D55E00",
+      "beta2_re" = "#E69F00"
+    ),
+    breaks = c("beta1", "beta1_re", "beta2", "beta2_re"),
+    labels = c(
+      "beta1"    = expression(beta[1]^phantom("'")),
+      "beta1_re" = expression(beta[1]^"'"),
+      "beta2"    = expression(beta[2]^phantom("'")),
+      "beta2_re" = expression(beta[2]^"'")
+    )
+  ) +
+
+  labs(y = "Density") +
+
+  theme_pub +
+
+  theme(
+    legend.title = element_blank(),
+    legend.position = "inside",
+    legend.position.inside = c(1, 0.01),
+    legend.justification = c("right", "bottom"),
+    legend.text = element_text(
+      family = "sans",
+      size = font_pt("legend")
+    ),
+    legend.key.height = unit(8, "pt"),
+    axis.text.y = element_blank(),
+    plot.margin = margin(r=8,l=10, "pt")
+  ) 
+
+Figure_3b
+```
+
+
+```{r, fig.width=FIG_WIDTH_IN, fig.height=FIG_WIDTH_IN/3, warning=FALSE}
+Figure_3_top <- cowplot::plot_grid(
+  g3a,
+  Figure_3b,
+  nrow = 1,
+  align = "h",
+  labels = c("A", "B"),
+  label_size = font_pt("panel"),
+  label_fontfamily = BASE_FAM,
+  label_fontface = "bold",
+  label_x = 0,
+  label_y = 1,
+  hjust = 0,
+  vjust = 1.5
+)
+
+Figure_3_top
+```
+
+## Bottom
+### c
+```{r, fig.width=FIG_WIDTH_IN/2, fig.height=FIG_WIDTH_IN/3}
+Figure_3c_data <- manaus_2w_simp_sims %>%
+  select(date, state, AGEGROUP, q50) %>%
+  pivot_wider(
+    names_from = state,
+    values_from = q50
+  ) %>%
+  mutate(
+    AGEGROUP = case_when(
+      AGEGROUP == "[70,inf]" ~ "70+",
+      AGEGROUP == "[70+]" ~ "70+",
+      TRUE ~ sub("\\]", ")", AGEGROUP)
+    )
+  )
+
+# One age-group annotation per facet
+Figure_3c_labels <- Figure_3c_data %>%
+  group_by(AGEGROUP) %>%
+  summarise(
+    date = min(date) + (max(date) - min(date)) / 2,
+    .groups = "drop"
+  )
+
+Figure_3c <- Figure_3c_data %>%
+  ggplot(aes(x = date, colour = AGEGROUP)) +
+
+  # All infections
+  geom_line(
+    aes(
+      y = Infected1 + Infected1_re +
+          Infected2 + Infected2_re,
+      linetype = "All infections"
+    ),
+    linewidth = 0.4
+  ) +
+
+  # Primary infections
+  geom_line(
+    aes(
+      y = Infected1 + Infected2,
+      linetype = "Primary infections"
+    ),
+    linewidth = 0.4
+  ) +
+
+  # Reinfections
+  geom_line(
+    aes(
+      y = Infected1_re + Infected2_re,
+      linetype = "Reinfections"
+    ),
+    linewidth = 0.4
+  ) +
+
+  scale_x_date(
+    date_breaks = "2 months",
+    date_minor_breaks = "1 month",
+    expand = c(0, 0),
+    limits = c(as.Date("2020-03-01"), NA),
+    labels = scales::label_date_short(
+      format = c("%y", "%b")
+    )
+  ) +
+
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.15)),
+    labels = scales::label_number()
+  ) +
+
+  scale_colour_manual(
+    values = color_to_age_map
+  ) +
+
+  scale_linetype_manual(
+    values = c(
+      "All infections"   = "dotdash",
+      "Primary infections" = "solid",
+      "Reinfections"     = "dashed"
+    ),
+    breaks = c(
+      "All infections",
+      "Primary infections",
+      "Reinfections"
+    )
+  ) +
+
+  facet_wrap(
+    ~AGEGROUP,
+    scales = "free_y",
+    ncol = 3
+  ) +
+
+  # Age-group labels inside each facet
+  geom_text(
+    data = Figure_3c_labels,
+    aes(
+      x = date,
+      y = Inf,
+      label = AGEGROUP
+    ),
+    inherit.aes = FALSE,
+    colour = "black",
+    vjust = 1.5,
+    family = BASE_FAM,
+    size = font_pt("small") / ggplot2::.pt
+  ) +
+
+  guides(
+    colour = "none",
+    linetype = guide_legend(
+      override.aes = list(
+        linewidth = 0.6
+      )
+    )
+  ) +
+
+  labs(
+    x = NULL,
+    y = "Individuals"
+  ) +
+
+  theme_pub +
+
+  theme(
+    panel.spacing = grid::unit(4, "pt"),
+
+    strip.text = element_blank(),
+    strip.background = element_blank(),
+
+    legend.title = element_blank(),
+    legend.position = "inside",
+    legend.position.inside = c(0.99, 0.02),
+    legend.justification = c("right", "bottom"),
+  )
+
+Figure_3c
+```
+
+```{r, fig.width = 28, fig.height=14}
+Figure_3_bottom <- cowplot::plot_grid(
+  Figure_3c,
+  labels = "C",
+  label_size = font_pt("panel"),
+  label_fontfamily = BASE_FAM,
+  label_fontface = "bold",
+  label_x = 0,
+  label_y = 1,
+  hjust = 0,
+  vjust = 1
+)
+
+Figure_3_bottom
+```
+
+
+```{r, fig.width = FIG_WIDTH_IN, fig.height = FIG_WIDTH_IN/2 }
+Figure_3 <- cowplot::plot_grid(
+  Figure_3_top,
+  Figure_3_bottom,
+  ncol = 1,
+  rel_heights = c(1, 2)
+)
+
+Figure_3
+```
+
+
+```{r}
+save_plos(
+  plot = Figure_3,
+  filename = "PDF/Fig3",
+  width_cm = in_to_cm(FIG_WIDTH_IN),
+  aspect = 0.7,
+  dpi = EXPORT_DPI,
+  formats = "pdf",
+  overwrite = TRUE
+)
+```
+
+#Figure 4
+```{r}
+states_4 <- c(
+  "data_hospdeaths",
+  "expected_hospdeaths",
+  "simulated_hospdeaths",
+  "b50_expected_hospdeaths"
+)
+
+line_states_4 <- c(
+  "data_hospdeaths",
+  "expected_hospdeaths",
+  "b50_expected_hospdeaths"
+)
+
+colors_4 <- c(
+  "data_hospdeaths"         = "#D55E00",
+  "expected_hospdeaths"     = "#000000",
+  "b50_expected_hospdeaths" = "#56B4E9"
+)
+
+labels_4 <- c(
+  "data_hospdeaths"         = "Data",
+  "expected_hospdeaths"     = "Model",
+  "b50_expected_hospdeaths" = "No strain 1"
+)
+
+Figure_4_data <- CF_b1_hospdeaths_predictions_cumulative_combined %>%
+  filter(state %in% states_4) %>%
+  mutate(
+    state = factor(state, levels = states_4),
+    AGEGROUP = case_when(
+      AGEGROUP == "[70,inf]" ~ "70+",
+      AGEGROUP == "[70+]" ~ "70+",
+      TRUE ~ sub("\\]", ")", AGEGROUP)
+    )
+  )
+```
+
+
+## Top
+```{r, fig.width = FIG_WIDTH_IN/2, fig.height = FIG_WIDTH_IN/2}
+Figure_4a_data <- Figure_4_data %>%
+  group_by(date, state) %>%
+  summarise(
+    aggregated_q05 = sum(q05, na.rm = TRUE),
+    aggregated_q50 = sum(q50, na.rm = TRUE),
+    aggregated_q95 = sum(q95, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+Figure_4a <- ggplot(
+  Figure_4a_data,
+  aes(x = date)
+) +
+
+  # Simulated uncertainty
+  geom_ribbon(
+    data = Figure_4a_data %>%
+      filter(state == "simulated_hospdeaths"),
+    aes(
+      ymin = aggregated_q05,
+      ymax = aggregated_q95
+    ),
+    fill = "black",
+    alpha = 0.2
+  ) +
+
+  # Expected uncertainty
+  geom_ribbon(
+    data = Figure_4a_data %>%
+      filter(state == "expected_hospdeaths"),
+    aes(
+      ymin = aggregated_q05,
+      ymax = aggregated_q95
+    ),
+    fill = "black",
+    alpha = 0.3
+  ) +
+
+  # Data, model, and counterfactual curves
+  geom_line(
+    data = Figure_4a_data %>%
+      filter(state %in% line_states_4),
+    aes(
+      y = aggregated_q50,
+      colour = state
+    ),
+    linewidth = 0.4
+  ) +
+
+  scale_colour_manual(
+    values = colors_4,
+    breaks = line_states_4,
+    labels = labels_4
+  ) +
+
+  scale_x_date(
+    date_breaks = "2 months",
+    date_minor_breaks = "1 month",
+    expand = c(0, 0),
+    limits = c(as.Date("2020-03-01"), NA),
+    labels = scales::label_date_short(
+      format = c("%y", "%b")
+    )
+  ) +
+
+  scale_y_continuous(
+    limits = c(0, 800),
+    expand = c(0, 0)
+  ) +
+
+  labs(
+    x = NULL,
+    y = "Aggregated hospital deaths"
+  ) +
+
+  theme_pub +
+
+  theme(
+    legend.position = "none",
+    plot.margin = margin(t = 8, r = 8, b = 4, l = 10, "pt")
+  )
+
+
+Figure_4a
+```
+
+
+### b
+```{r, fig.width = FIG_WIDTH_IN/2, fig.height = FIG_WIDTH_IN/2}
+Figure_4b_data <- Figure_4_data %>%
+  group_by(date, state) %>%
+  summarise(
+    aggregated_cum_q05 = sum(cum_q05, na.rm = TRUE),
+    aggregated_cum_q50 = sum(cum_q50, na.rm = TRUE),
+    aggregated_cum_q95 = sum(cum_q95, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+Figure_4b <- ggplot(
+  Figure_4b_data,
+  aes(x = date)
+) +
+
+  # Expected model uncertainty
+  geom_ribbon(
+    data = Figure_4b_data %>%
+      filter(state == "expected_hospdeaths"),
+    aes(
+      ymin = aggregated_cum_q05,
+      ymax = aggregated_cum_q95
+    ),
+    alpha = 0.3,
+    fill = "black"
+  ) +
+
+  # Data, model, and counterfactual curves
+  geom_line(
+    data = Figure_4b_data %>%
+      filter(state %in% line_states_4),
+    aes(
+      y = aggregated_cum_q50,
+      colour = state
+    ),
+    linewidth = 0.4
+  ) +
+
+  scale_colour_manual(
+    values = colors_4,
+    breaks = line_states_4,
+    labels = labels_4
+  ) +
+
+  scale_x_date(
+    date_breaks = "2 months",
+    date_minor_breaks = "1 month",
+    expand = c(0, 0),
+    limits = c(as.Date("2020-03-01"), NA),
+    labels = scales::label_date_short(
+      format = c("%y", "%b")
+    )
+  ) +
+
+  scale_y_continuous(
+    limits = c(0, 20000),
+    expand = c(0, 0),
+    labels = scales::label_number()
+  ) +
+
+  labs(
+    x = NULL,
+    y = "Cumulative hospital deaths"
+  ) +
+
+  theme_pub +
+
+  theme(
+    legend.position = "none",
+    plot.margin = margin(t = 8, r = 8, b = 4, l = 10, "pt")
+  )
+
+Figure_4b
+```
+
+
+
+```{r, fig.width = FIG_WIDTH_IN, fig.height = FIG_WIDTH_IN/2}
+Figure_4_top <- cowplot::plot_grid(
+  Figure_4a,
+  Figure_4b,
+  nrow = 1,
+  align = "h",
+  rel_widths = c(1, 1),
+
+  labels = c("A", "B"),
+  label_size = font_pt("panel"),
+  label_fontfamily = BASE_FAM,
+  label_fontface = "bold",
+  label_x = 0,
+  label_y = 1,
+  hjust = 0,
+  vjust = 1.5
+)
+
+Figure_4_top
+```
+
+
+## bottom
+###c
+```{r, fig.width=FIG_WIDTH_IN, fig.height=FIG_WIDTH_IN/2}
+Figure_4c_labels <- Figure_4_data %>%
+  group_by(AGEGROUP) %>%
+  summarise(
+    date = as.Date("2020-03-01") +
+      (max(date) - as.Date("2020-03-01")) / 2,
+    .groups = "drop"
+  )
+
+Figure_4c <- Figure_4_data %>%
+  ggplot(aes(x = date)) +
+
+  # Expected model uncertainty
+  geom_ribbon(
+    data = Figure_4_data %>%
+      filter(state == "expected_hospdeaths"),
+    aes(
+      ymin = cum_q05,
+      ymax = cum_q95,
+      fill = AGEGROUP
+    ),
+    alpha = 0.3,
+    show.legend = FALSE
+  ) +
+
+  # Data, model, and counterfactual curves
+  geom_line(
+    data = Figure_4_data %>%
+      filter(state %in% line_states_4),
+    aes(
+      y = cum_q50,
+      colour = state
+    ),
+    linewidth = 0.4
+  ) +
+
+  scale_colour_manual(
+    values = colors_4,
+    breaks = line_states_4,
+    labels = labels_4,
+    name = NULL
+  ) +
+
+  scale_fill_manual(
+    values = color_to_age_map
+  ) +
+
+  scale_x_date(
+    date_breaks = "2 months",
+    date_minor_breaks = "1 month",
+    expand = c(0, 0),
+    limits = c(as.Date("2020-03-01"), NA),
+    labels = scales::label_date_short(
+      format = c("%y", "%b")
+    )
+  ) +
+
+  scale_y_continuous(
+    limits = c(0, NA),
+    expand = expansion(mult = c(0, 0.05)),
+    labels = scales::label_number()
+  ) +
+
+  facet_wrap(
+    ~AGEGROUP,
+    scales = "free_y",
+    ncol = 3
+  ) +
+
+  # One age-group label per facet
+  geom_text(
+    data = Figure_4c_labels,
+    aes(
+      x = date,
+      y = Inf,
+      label = AGEGROUP
+    ),
+    inherit.aes = FALSE,
+    colour = "black",
+    vjust = 1.5,
+    family = BASE_FAM,
+    size = font_pt("small") / ggplot2::.pt
+  ) +
+
+  guides(
+    colour = guide_legend(
+      override.aes = list(
+        linewidth = 0.6
+      )
+    ),
+    fill = "none"
+  ) +
+
+  labs(
+    x = NULL,
+    y = "Cumulative hospital deaths"
+  ) +
+
+  theme_pub +
+
+  theme(
+    panel.spacing = grid::unit(4, "pt"),
+
+    strip.placement = "inside",
+    strip.text = element_blank(),
+    strip.background = element_blank(),
+
+    legend.title = element_blank(),
+    legend.position = "inside",
+    legend.position.inside = c(0.99, 0.02),
+    legend.justification = c("right", "bottom"),
+    legend.background = element_blank(),
+    plot.margin = margin(l=4,r=8, "pt")
+  )
+
+Figure_4c
+```
+
+```{r, fig.width = FIG_WIDTH_IN, fig.height = FIG_WIDTH_IN/2}
+Figure_4_bottom <- cowplot::plot_grid(
+  Figure_4c,
+
+  labels = "C",
+  label_size = font_pt("panel"),
+  label_fontfamily = BASE_FAM,
+  label_fontface = "bold",
+  label_x = 0,
+  label_y = 1,
+  hjust = 0,
+  vjust = 1.5
+)
+Figure_4_bottom
+```
+
+```{r, fig.width = FIG_WIDTH_IN, fig.height = FIG_WIDTH_IN}
+Figure_4 <- cowplot::plot_grid(
+  Figure_4_top,
+  Figure_4_bottom,
+  ncol = 1,
+  rel_heights = c(1, 2),
+  align = "l"
+)
+Figure_4
+```
+
+
+```{r}
+save_plos(
+  plot = Figure_4,
+  filename = "PDF/Fig4",
+  width_cm = in_to_cm(FIG_WIDTH_IN),
+  aspect = 0.7,
+  dpi = EXPORT_DPI,
+  formats = "pdf",
+  overwrite = TRUE
+)
+```
+
+# Figure S1
+##bottom
+###c
+```{r, fig.width = FIG_WIDTH_IN, fig.height = FIG_WIDTH_IN/2}
+Figure_S1_c <- ggplot() +
+
+  geom_histogram(
+    data = pneg_df,
+    aes(x = S, y = after_stat(density)),
+    binwidth = 7,
+    fill = "lightgray",
+    colour = NA
+  ) +
+
+  geom_density(
+    data = data.frame(S = s_sim_gamma),
+    aes(x = S),
+    colour = "black",
+    linewidth = 0.4
+  ) +
+
+  scale_x_continuous(
+    limits = c(0, 500),
+    expand = c(0, 0)
+  ) +
+
+  scale_y_continuous(
+    limits = c(0, 0.006),
+    expand = c(0, 0)
+  ) +
+
+  labs(
+    x = "Interval between seroconversion\nand seroreversion (days)",
+    y = "Density"
+  ) +
+
+  theme_pub +
+  
+  theme(
+    plot.margin = margin(t = 8, r = 8, b = 4, l = 10, "pt")
+  )
+  
+
+Figure_S1_c
+```
+
+###d
+```{r}
+Figure_S1_d <- ggplot() +
+  theme_void() +
+  theme(
+    plot.background = element_rect(
+      fill = "white",
+      colour = NA
+    ),
+    panel.background = element_blank(),
+    plot.margin = margin(0, 0, 0, 0, "pt")
+  )
+
+Figure_S1_d
+```
+
+```{r, fig.width = FIG_WIDTH_IN, fig.height = FIG_WIDTH_IN/2}
+Figure_S1_bottom_left <- cowplot::plot_grid(
+  Figure_S1_c,
+  Figure_S1_d,
+  ncol = 1,
+  rel_heights = c(1, 0.5),
+  labels = c("C", ""),
+  label_size = font_pt("panel"),
+  label_fontfamily = BASE_FAM,
+  label_fontface = "bold",
+  label_x = 0,
+  label_y = 1,
+  hjust = 0,
+  vjust = 1.5
+)
+
+Figure_S1_bottom <- cowplot::plot_grid(
+  Figure_S1_bottom_left,
+  Figure_S1_d,
+  nrow = 1,
+  rel_widths = c(1, 1.5),
+  labels = c("", "D"),
+  label_size = font_pt("panel"),
+  label_fontfamily = BASE_FAM,
+  label_fontface = "bold",
+  label_x = 0,
+  label_y = 1,
+  hjust = 0,
+  vjust = 1.5
+)
+
+Figure_S1_bottom
+```
+
+
+##top
+###a
+```{r, fig.width = FIG_WIDTH_IN, fig.height = FIG_WIDTH_IN/2}
+Figure_S1_a <- pop2020_remapped %>%
+  mutate(
+    AGEGROUP = case_when(
+      AGEGROUP == "[70,inf]" ~ "70+",
+      AGEGROUP == "[70+]" ~ "70+",
+      TRUE ~ sub("\\]", ")", AGEGROUP)
+    )
+  ) %>%
+
+  ggplot(aes(y = AGEGROUP)) +
+
+  geom_col(
+    aes(
+      x = 100 * female_population / sum(total_population),
+      fill = "Female"
+    ),
+    show.legend = FALSE
+  ) +
+
+  geom_col(
+    aes(
+      x = -100 * male_population / sum(total_population),
+      fill = "Male"
+    ),
+    show.legend = FALSE
+  ) +
+
+  scale_x_continuous(
+    limits = c(-10, 10),
+    breaks = c(-10, -5, 0, 5, 10),
+    labels = abs,
+    expand = c(0, 0)
+  ) +
+
+  scale_y_discrete(
+    expand = c(0, 0)
+  ) +
+
+  scale_fill_manual(
+    values = c(
+      "Female" = "#ee5c42",
+      "Male" = "#6495ed"
+    )
+  ) +
+
+  labs(
+    x = "Proportion of the population (%)",
+    y = "Age group"
+  ) +
+
+  annotate(
+    "text",
+    x = 9,
+    y = 8,
+    label = "Female",
+    hjust = 1,
+    family = BASE_FAM,
+    size = font_pt("small") / ggplot2::.pt
+  ) +
+
+  annotate(
+    "text",
+    x = -9,
+    y = 8,
+    label = "Male",
+    hjust = 0,
+    family = BASE_FAM,
+    size = font_pt("small") / ggplot2::.pt
+  ) +
+
+  theme_pub 
+
+Figure_S1_a
+
+```
+
+
+```{r}
+pop2020_remapped %>%
+  mutate(AGEGROUP = case_when(
+               AGEGROUP == "[70,inf]" ~ "70+",
+               AGEGROUP == "[70+]" ~ "70+",
+               TRUE ~ sub("\\]", ")", AGEGROUP)
+             )) %>%
+  summarise(total_pop = sum(total_population))
+```
+
+
+###b
+```{r}
+contactmatrix_unperturbed_normalised <- readRDS("data/contactmatrix_unperturbed_normalised")
+rownames(contactmatrix_unperturbed_normalised) <- agebin70_10y_levels
+colnames(contactmatrix_unperturbed_normalised) <- agebin70_10y_levels
+
+contact_10y_clean_df <- as.data.frame(
+    as.table(contactmatrix_unperturbed_normalised),
+    responseName = "m_value_weighted",
+    stringsAsFactors = FALSE
+  ) %>%
+    mutate(
+      part_age_10y = factor(
+        Var1,
+        levels = agebin70_10y_levels
+      ),
+      contact_age_10y = factor(
+        Var2,
+        levels = agebin70_10y_levels
+      )
+    ) %>%
+  select(part_age_10y, contact_age_10y, m_value_weighted) 
+```
+
+```{r}
+color_list = c("white", "steelblue", "navy", 'black')
+
+color_gradient = colorRampPalette(color_list, bias = 2.0)(100)
+```
+
+
+```{r, fig.width = FIG_WIDTH_IN, fig.height = FIG_WIDTH_IN/2}
+Figure_S1_b <- contact_10y_clean_df %>%
+  mutate(
+    part_age_10y = case_when(
+      part_age_10y == "[70,inf]" ~ "70+",
+      TRUE ~ sub("\\]", ")", part_age_10y)
+    ),
+    contact_age_10y = case_when(
+      contact_age_10y == "[70,inf]" ~ "70+",
+      TRUE ~ sub("\\]", ")", contact_age_10y)
+    )
+  ) %>%
+
+  ggplot(aes(part_age_10y, contact_age_10y)) +
+
+  geom_tile(
+    aes(fill = m_value_weighted)
+  ) +
+
+  scale_fill_gradientn(
+    colours = color_gradient,
+    limits = c(0, 1),
+    breaks = seq(0, 1, by = 0.25),
+    guide = guide_colourbar(
+      title = "Normalised mean\nnumber of contacts",
+      barheight = grid::unit(25, "mm"),
+      barwidth = grid::unit(2.5, "mm"),
+      frame.colour = "black"
+    )
+  ) +
+
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_y_discrete(expand = c(0, 0)) +
+
+  labs(
+    x = "Age group of individual",
+    y = "Age group of contact"
+  ) +
+
+  theme_pub +
+
+  theme(
+    axis.text.x = element_text(
+      size = font_pt("axis"),
+      angle = 45,
+      hjust = 1,
+      vjust = 1,
+      family = BASE_FAM
+    ),
+
+    panel.border = element_rect(
+      colour = "black",
+      fill = NA,
+      linewidth = 0.3
+    ),
+
+    legend.position = "right",
+    legend.title = element_text(
+      size = font_pt("legend"),
+      family = BASE_FAM
+    )
+  )
+
+Figure_S1_b
+
+```
+
+```{r, fig.width = FIG_WIDTH_IN, fig.height = FIG_WIDTH_IN/2}
+Figure_S1_top <- cowplot::plot_grid(
+  Figure_S1_a + theme(aspect.ratio = 1),
+  Figure_S1_b + theme(aspect.ratio = 1),
+
+  nrow = 1,
+  align = "hv",
+  axis = "lbt",
+  rel_widths = c(1, 1),
+
+  labels = c("A", "B"),
+  label_size = font_pt("panel"),
+  label_fontfamily = BASE_FAM,
+  label_fontface = "bold",
+  label_x = 0,
+  label_y = 1,
+  hjust = 0,
+  vjust = 1.5
+)
+
+Figure_S1_top
+```
+
+```{r, fig.width = FIG_WIDTH_IN, fig.height = FIG_WIDTH_IN}
+Figure_S1 <- cowplot::plot_grid(
+  Figure_S1_top,
+  Figure_S1_bottom,
+  ncol = 1,
+  rel_heights = c(1, 1.5)
+)
+
+Figure_S1
+```
+
+```{r}
+save_plos(
+  plot = Figure_S1,
+  filename = "PDF/FigS1",
+  width_cm = in_to_cm(FIG_WIDTH_IN),
+  aspect = 20 / 28,
+  dpi = EXPORT_DPI,
+  formats = "pdf",
+  overwrite = TRUE
+)
+```
+
+
+#Figure S3
+```{r, fig.width = FIG_WIDTH_IN, fig.height = FIG_WIDTH_IN}
+totals <- manaus_2w_simp_sims %>%
+  filter(state == "total_N") %>%
+  select(
+    date,
+    AGEGROUP,
+    q50_total = q50,
+    q05_total = q05,
+    q95_total = q95
+  )
+
+Figure_S3_data <- manaus_2w_simp_sims %>%
+  filter(state != "total_N") %>%
+  left_join(
+    totals,
+    by = c("date", "AGEGROUP")
+  ) %>%
+  mutate(
+    q50_prop = q50 / q50_total,
+    q05_prop = q05 / q05_total,
+    q95_prop = q95 / q95_total,
+    AGEGROUP = factor(AGEGROUP)
+  )
+
+# Population-level proportions for the dashed curves
+Figure_S3_aggregated <- Figure_S3_data %>%
+  group_by(date, state) %>%
+  summarise(
+    aggregated_q50_prop = sum(q50, na.rm = TRUE) /
+      sum(q50_total, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# One state label per facet
+Figure_S3_labels <- Figure_S3_data %>%
+  group_by(state) %>%
+  summarise(
+    date = min(date) + (max(date) - min(date)) / 2,
+    .groups = "drop"
+  )
+
+Figure_S3 <- ggplot(
+  Figure_S3_data,
+  aes(x = date)
+) +
+
+  # Uncertainty ribbons
+  geom_ribbon(
+    aes(
+      ymin = q05_prop,
+      ymax = q95_prop,
+      fill = AGEGROUP,
+      group = AGEGROUP
+    ),
+    alpha = 0.2
+  ) +
+
+  # Age-group trajectories
+  geom_line(
+    aes(
+      y = q50_prop,
+      colour = AGEGROUP,
+      group = AGEGROUP
+    ),
+    linewidth = 0.4
+  ) +
+
+  # Population-level trajectories
+  geom_line(
+    data = Figure_S3_aggregated,
+    aes(
+      x = date,
+      y = aggregated_q50_prop
+    ),
+    inherit.aes = FALSE,
+    colour = "black",
+    linewidth = 0.6,
+    linetype = "dashed"
+  ) +
+
+  scale_colour_manual(
+    values = color_to_age_map,
+    name = "Age group"
+  ) +
+
+  scale_fill_manual(
+    values = color_to_age_map,
+    name = "Age group"
+  ) +
+
+  scale_x_date(
+    date_breaks = "2 months",
+    date_minor_breaks = "1 month",
+    expand = c(0, 0),
+    limits = c(as.Date("2020-03-01"), NA),
+    labels = scales::label_date_short(
+      format = c("%y", "%b")
+    )
+  ) +
+
+  scale_y_continuous(
+    limits = c(0, NA),
+    expand = expansion(mult = c(0, 0.15)),
+    labels = scales::label_number()
+  ) +
+
+  facet_wrap(
+    ~state,
+    scales = "free_y",
+    ncol = 3,
+    nrow = 4,
+    dir = "v"
+  ) +
+
+  # State labels inside facets
+  geom_text(
+    data = Figure_S3_labels,
+    aes(
+      x = date,
+      y = Inf,
+      label = state
+    ),
+    inherit.aes = FALSE,
+    colour = "black",
+    vjust = 1.5,
+    family = BASE_FAM,
+    size = font_pt("small") / ggplot2::.pt
+  ) +
+
+  guides(
+    colour = guide_legend(
+      title = "Age group",
+      override.aes = list(linewidth = 0.6)
+    ),
+    fill = "none"
+  ) +
+
+  labs(
+    x = NULL,
+    y = "Fraction of age group"
+  ) +
+
+  theme_pub +
+
+  theme(
+    panel.spacing = grid::unit(4, "pt"),
+
+    strip.placement = "inside",
+    strip.text = element_blank(),
+    strip.background = element_blank(),
+
+    legend.position = "inside",
+    legend.position.inside = c(0.99, 0.4),
+    legend.justification = c("right", "bottom"),
+    legend.background = element_blank()
+  )
+
+Figure_S3
+```
+
+```{r}
+save_plos(
+  plot = Figure_S3,
+  filename = "PDF/FigS3",
+  width_cm = in_to_cm(FIG_WIDTH_IN),
+  aspect = 0.7,
+  dpi = EXPORT_DPI,
+  formats = "pdf",
+  overwrite = TRUE
+)
+```
+
+# Figure S2
+## top
+### a
+```{r, fig.width=FIG_WIDTH_IN, fig.height=FIG_WIDTH_IN/2}
+Figure_S2a <- list()
+
+agegroups_S2a <- unique(
+  as.character(
+    manaus_2w_SIRS_hospdeaths_predictions_with_data$AGEGROUP
+  )
+)
+
+for (agegroup in agegroups_S2a) {
+
+  df_age <- manaus_2w_SIRS_hospdeaths_predictions_with_data %>%
+    filter(AGEGROUP == agegroup)
+
+  Figure_S2a_subplot <- ggplot(df_age, aes(x = date)) +
+
+    # Simulated hospital deaths
+    geom_ribbon(
+      data = df_age %>%
+        filter(state == "simulated_hospdeaths"),
+      aes(
+        ymin = q05,
+        ymax = q95,
+        fill = AGEGROUP
+      ),
+      alpha = 0.2
+    ) +
+
+    # Observed hospital deaths
+    geom_point(
+      data = df_age %>%
+        filter(state == "data_hospdeaths"),
+      aes(
+        y = q50,
+        colour = AGEGROUP
+      ),
+      size = 0.4
+    ) +
+
+    # Expected hospital deaths
+    geom_ribbon(
+      data = df_age %>%
+        filter(state == "expected_hospdeaths"),
+      aes(
+        ymin = q05,
+        ymax = q95,
+        fill = AGEGROUP,
+        colour = AGEGROUP
+      ),
+      alpha = 0.3,
+      linewidth = 0.2
+    ) +
+
+    geom_line(
+      data = df_age %>%
+        filter(state == "expected_hospdeaths"),
+      aes(y = q50),
+      linewidth = 0.4
+    ) +
+
+    scale_colour_manual(values = color_to_age_map) +
+    scale_fill_manual(values = color_to_age_map) +
+
+    scale_x_date(
+      date_breaks = "1 month",
+      limits = as.Date(c("2020-03-01", "2021-05-01")),
+      expand = c(0, 0),
+      labels = function(x) {
+        m <- format(x, "%m")
+        y <- format(x, "%y")
+
+        ifelse(
+          x == as.Date("2020-03-01"),
+          "Mar\n20",
+          ifelse(
+            m == "01",
+            paste0("Jan\n", y),
+            ifelse(
+              m %in% c("03", "05", "07", "09", "11"),
+              format(x, "%b"),
+              ""
+            )
+          )
+        )
+      }
+    ) +
+
+    scale_y_continuous(
+      expand = c(0, 0)
+    ) +
+
+    labs(
+      x = NULL,
+      y = "Hospital deaths"
+    ) +
+
+    # One age-group label per subplot
+    geom_text(
+      aes(label = AGEGROUP, x = (min(date) + (max(date) - min(date))/2)),
+      y = Inf,
+      vjust = 1.5,
+      family = BASE_FAM,
+      size = font_pt("small") / ggplot2::.pt,
+      check_overlap = TRUE) +
+
+    theme_pub +
+
+    theme(
+      legend.position = "none",
+      axis.title.x = element_blank(),
+      plot.margin = margin(
+        t = 0, r = 1, b = 0, l = 0,
+        unit = "pt"
+      )
+    )
+
+  Figure_S2a[[agegroup]] <- Figure_S2a_subplot
+}
+
+# Retain the original ordering
+Figure_S2a <- unname(Figure_S2a[agegroups_S2a])
+
+stopifnot(length(Figure_S2a) == 8L)
+
+# Only the middle-left subplot needs the y-axis title
+for (i in setdiff(seq_along(Figure_S2a), 4)) {
+  Figure_S2a[[i]] <- Figure_S2a[[i]] +
+    theme(axis.title.y = element_blank())
+}
+
+for(i in c(1,2,3,5,6,7,8) ) {
+  Figure_S2a[[i]] <- Figure_S2a[[i]] +
+    theme(
+      axis.title.y = element_blank()
+    )
+}
+
+for(i in 6:8 ) {
+  Figure_S2a[[i]] <- Figure_S2a[[i]] +
+    theme(
+      plot.margin = margin(0, r=8, 0, 0, "pt"),
+    )
+}
+
+for(i in 1:3 ) {
+  Figure_S2a[[i]] <- Figure_S2a[[i]] +
+    theme(
+      plot.margin = margin(t=4, 0, 0, 0, "pt"),
+    )
+}
+
+for(i in 1:5) {
+  Figure_S2a[[i]] <- Figure_S2a[[i]] +
+    theme(
+      axis.title.x = element_blank(),
+      axis.text.x  = element_blank(),
+      axis.ticks.x = element_blank(),
+      axis.line.x  = element_blank(),
+      axis.ticks.length.x = unit(0, "pt")
+    )
+}
+
+# Preview
+Figure_S2a_top <- cowplot::plot_grid(
+  plotlist = Figure_S2a,
+  ncol = 3,
+  align = "hv",
+  axis = "lb"
+)
+
+Figure_S2a_top
+```
+
+### c
+```{r, fig.width=FIG_WIDTH_IN/3, fig.height=FIG_WIDTH_IN/5}
+Figure_S2c <- manaus_2w_SIRS_phylo_predictions_data %>%
+  ggplot(aes(x = date)) +
+
+  # Simulated phylogenetic data
+  geom_ribbon(
+    data = . %>%
+      filter(state == "simulated_phylodata"),
+    aes(
+      ymin = q05 / number,
+      ymax = q95 / number
+    ),
+    alpha = 0.2
+  ) +
+
+  # Observed lineage frequencies
+  geom_point(
+    data = . %>%
+      filter(state == "data_phylo"),
+    aes(
+      y = q50 / number,
+      size = number
+    )
+  ) +
+
+  # Expected phylogenetic data
+  geom_ribbon(
+    data = . %>%
+      filter(state == "expected_phylodata"),
+    aes(
+      ymin = q05 / number,
+      ymax = q95 / number
+    ),
+    alpha = 0.4
+  ) +
+
+  geom_line(
+    data = . %>%
+      filter(state == "expected_phylodata"),
+    aes(y = q50 / number),
+    linewidth = 0.4,
+    colour = "black"
+  ) +
+
+  scale_x_date(
+    date_breaks = "1 month",
+    limits = as.Date(c("2020-05-01", "2021-01-10")),
+    expand = c(0, 0),
+    labels = function(x) {
+      m <- format(x, "%m")
+      y <- format(x, "%y")
+
+      ifelse(
+        x == as.Date("2020-05-01"),
+        "May\n20",
+        ifelse(
+          m == "01",
+          paste0("Jan\n", y),
+          ifelse(
+            m %in% c("03", "05", "07", "09", "11"),
+            format(x, "%b"),
+            ""
+          )
+        )
+      )
+    }
+  ) +
+
+  scale_y_continuous(
+    limits = c(0, 1),
+    breaks = seq(0, 1, 0.25),
+    labels = function(x) x * 100,
+    expand = c(0, 0)
+  ) +
+
+  scale_size_continuous(
+    limits = c(1, 50),
+    breaks = c(1, 10, 25, 50),
+    range = c(0.2, 1.5)
+  ) +
+
+  labs(
+    x = NULL,
+    y = "P.1 (%)",
+    size = "Sample size"
+  ) +
+
+  theme_pub +
+
+  theme(
+    legend.position = "right",
+    plot.margin = margin(
+      t = 8, r = 0, b = 0, l = 4,
+      unit = "pt"
+    )
+  )
+
+Figure_S2c
+```
+
+```{r, fig.width=FIG_WIDTH_IN, fig.height=FIG_WIDTH_IN/2}
+
+aligned_S2a_final <- cowplot::align_plots(
+  Figure_S2a[[1]], Figure_S2a[[2]], Figure_S2a[[3]],
+  Figure_S2a[[4]], Figure_S2a[[5]], Figure_S2a[[6]],
+  Figure_S2a[[7]], Figure_S2a[[8]],
+  align = "hv",
+  axis = "tlbr"
+)
+
+for(i in 1:8){
+  Figure_S2a[[i]] <- aligned_S2a_final[[i]]
+}
+
+Figure_S2_top <- plot_grid(
+  plot_grid(Figure_S2a[[1]], Figure_S2a[[2]], Figure_S2a[[3]], ncol = 3),
+  plot_grid(Figure_S2a[[4]], Figure_S2a[[5]], Figure_S2a[[6]], ncol = 3),
+  plot_grid(
+    plot_grid(Figure_S2a[[7]], Figure_S2a[[8]]),
+    Figure_S2c, ncol = 2, rel_widths = c(2,1),
+    labels = c("", "C"),
+    label_size = font_pt("panel"),
+    label_fontfamily = BASE_FAM,
+    label_fontface = "bold",
+    label_x = 0,
+    label_y = 1,
+    hjust = 0,
+    vjust = 1
+  ),
+  ncol = 1
+)
+
+Figure_S2_top
+```
+
+## bottom
+### b
+```{r, fig.width=FIG_WIDTH_IN, fig.height=FIG_WIDTH_IN/2}
+Figure_S2b <- manaus_2w_SIRS_sero_predictions_data %>%
+  mutate(
+    AGEGROUP = case_when(
+      AGEGROUP == "[70,inf]" ~ "70+",
+      AGEGROUP == "[70+]" ~ "70+",
+      TRUE ~ sub("\\]", ")", AGEGROUP)
+    )
+  ) %>%
+
+  ggplot(aes(x = median_date)) +
+
+  # Simulated seroprevalence
+  geom_ribbon(
+    data = . %>%
+      filter(state == "simulated_serodata"),
+    aes(
+      ymin = q05 / SampleSize,
+      ymax = q95 / SampleSize,
+      fill = AGEGROUP
+    ),
+    alpha = 0.2
+  ) +
+
+  # Observed seroprevalence
+  geom_point(
+    data = . %>%
+      filter(state == "data_sero"),
+    aes(
+      y = q50 / SampleSize,
+      colour = AGEGROUP,
+      size = SampleSize
+    )
+  ) +
+
+  # Expected seroprevalence
+  geom_ribbon(
+    data = . %>%
+      filter(state == "expected_serodata"),
+    aes(
+      ymin = q05 / SampleSize,
+      ymax = q95 / SampleSize,
+      fill = AGEGROUP,
+      colour = AGEGROUP
+    ),
+    alpha = 0.3,
+    linewidth = 0.2
+  ) +
+
+  geom_line(
+    data = . %>%
+      filter(state == "expected_serodata"),
+    aes(y = q50 / SampleSize),
+    linewidth = 0.4
+  ) +
+
+  geom_text(
+      aes(label = AGEGROUP, x = (min(median_date) + (max(median_date) - min(median_date))/2)),
+      y = Inf,
+      vjust = 1.5,
+      family = BASE_FAM,
+      size = font_pt("small") / ggplot2::.pt,
+      check_overlap = TRUE
+    ) +
+
+  scale_x_date(
+    date_breaks = "1 month",
+    limits = c(as.Date("2020-03-01"), NA),
+    expand = c(0, 0),
+    labels = function(x) {
+      m <- format(x, "%m")
+      y <- format(x, "%y")
+
+      ifelse(
+        x == as.Date("2020-03-01"),
+        "Mar\n20",
+        ifelse(
+          m == "01",
+          paste0("Jan\n", y),
+          ifelse(
+            m %in% c("03", "05", "07", "09", "11"),
+            format(x, "%b"),
+            ""
+          )
+        )
+      )
+    }
+  ) +
+
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.03)),
+    labels = function(x) x * 100
+  ) +
+
+  scale_colour_manual(
+    values = color_to_age_map
+  ) +
+
+  scale_fill_manual(
+    values = color_to_age_map
+  ) +
+
+  scale_size_continuous(
+    range = c(0.2, 1.5),
+    name = "Sample size"
+  ) +
+
+  facet_wrap(
+    ~AGEGROUP,
+    scales = "free_y"
+  ) +
+
+  guides(
+    size = guide_legend(
+      title = "Sample size",
+      override.aes = list(colour = "black")
+    ),
+    colour = "none",
+    fill = "none"
+  ) +
+
+  labs(
+    x = NULL,
+    y = "Seroprevalence (%)"
+  ) +
+
+  theme_pub +
+
+  theme(
+    # Compact facet layout
+    panel.spacing = grid::unit(6, "pt"),
+
+    # Age-group labels
+    strip.placement = "inside",
+    strip.text = element_blank(),
+    strip.background = element_blank(),
+
+    legend.position = "right",
+
+    plot.margin = margin(
+      t = 8, r = 0, b = 0, l = 8,
+      unit = "pt"
+    )
+  )
+
+Figure_S2b
+```
+
+```{r, fig.width=FIG_WIDTH_IN, fig.height=FIG_WIDTH_IN/2}
+Figure_S2 <- cowplot::plot_grid(
+  Figure_S2_top,
+  Figure_S2b,
+  ncol = 1,
+  rel_heights = c(3, 2),
+  labels = c("A", "B"),
+  label_size = font_pt("panel"),
+  label_fontfamily = BASE_FAM,
+  label_fontface = "bold",
+  label_x = 0,
+  label_y = 1,
+  hjust = 0,
+  vjust = 1
+)
+
+Figure_S2
+```
+
+```{r}
+save_plos(
+  plot = Figure_S2,
+  filename = "PDF/FigS2",
+  width_cm = in_to_cm(FIG_WIDTH_IN),
+  aspect = 0.7,
+  dpi = EXPORT_DPI,
+  formats = "pdf",
+  overwrite = TRUE
+)
+```
+
+
+#Figure S4 Prior-posterior
+```{r}
+library("invgamma")
+```
+
+
+```{r, fig.width=FIG_WIDTH_IN, fig.height=FIG_WIDTH_IN*20/28}
+Figure_S4 <- plot_grid(
+  manaus_2w_updated_draws_df %>% 
+    select(gamma, .chain) %>%
+    mutate(.chain = as.factor(.chain)) %>%
+    ggplot(aes(x = gamma)) +
+    geom_density(
+      aes(fill = .chain, color = .chain),
+      alpha = 0.7,
+      linewidth = 0.4,
+      show.legend = FALSE
+    ) +
+    stat_function(
+      aes(color = "Prior"),
+      fun = invgamma::dinvgamma,
+      args = list(shape = 22.6, rate = 2.44),
+      linewidth = 0.6,
+      show.legend = FALSE
+    ) +
+    scale_color_manual(name = "", values = c("Prior" = "red")) +
+    scale_x_continuous(limits = c(0.05, 0.2), expand = c(0, 0)) +
+    scale_y_continuous(expand = c(0, 0)) +
+    labs(
+      title = "recovery rate",
+      y = "Density"
+    ) +
+    geom_vline(
+      xintercept = invgamma::qinvgamma(
+        p = 0.025, shape = 22.6, rate = 2.44
+      ),
+      color = "red",
+      linetype = "dashed",
+      linewidth = 0.4
+    ) +
+    geom_vline(
+      xintercept = invgamma::qinvgamma(
+        p = 0.975, shape = 22.6, rate = 2.44
+      ),
+      color = "red",
+      linetype = "dashed",
+      linewidth = 0.4
+    ) +
+    theme_pub +
+    theme(
+      plot.title = element_text(
+        hjust = 0.5,
+        size = font_pt("body")
+      ),
+      legend.position = "none",
+      axis.text.y = element_blank(),
+      axis.title.x = element_blank(),
+      axis.ticks.y = element_blank(),
+      plot.margin = margin(4, 2, 0, 4, "pt")
+    ),
+
+  manaus_2w_updated_draws_df %>% 
+    select(w, .chain) %>%
+    mutate(.chain = as.factor(.chain)) %>%
+    ggplot(aes(x = w)) +
+    geom_density(
+      aes(fill = .chain, color = .chain),
+      alpha = 0.7,
+      linewidth = 0.4,
+      show.legend = FALSE
+    ) +
+    stat_function(
+      aes(color = "Prior"),
+      fun = function(x) invgamma::dinvgamma(
+        x, shape = 2.4, rate = 0.0153
+      ),
+      linewidth = 0.6,
+      show.legend = FALSE
+    ) +
+    geom_vline(
+      xintercept = invgamma::qinvgamma(
+        p = 0.025, shape = 2.4, rate = 0.0153
+      ),
+      color = "red",
+      linetype = "dashed",
+      linewidth = 0.4
+    ) +
+    geom_vline(
+      xintercept = invgamma::qinvgamma(
+        p = 0.975, shape = 2.4, rate = 0.0153
+      ),
+      color = "red",
+      linetype = "dashed",
+      linewidth = 0.4
+    ) +
+    scale_color_manual(name = "", values = c("Prior" = "red")) +
+    scale_x_continuous(limits = c(0, 0.05), expand = c(0, 0)) +
+    scale_y_continuous(expand = c(0, 0)) +
+    labs(title = "waning rate") +
+    theme_pub +
+    theme(
+      plot.title = element_text(
+        hjust = 0.5,
+        size = font_pt("body")
+      ),
+      legend.position = "none",
+      axis.text.y = element_blank(),
+      axis.title.x = element_blank(),
+      axis.title.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      plot.margin = margin(4, 2, 0, 4, "pt")
+    ),
+
+  manaus_2w_updated_draws_df %>% 
+    select(log10_ifr1_slope, .chain) %>%
+    mutate(.chain = as.factor(.chain)) %>%
+    ggplot(aes(x = log10_ifr1_slope)) +
+    geom_density(
+      aes(fill = .chain, color = .chain),
+      alpha = 0.7,
+      linewidth = 0.4,
+      show.legend = FALSE
+    ) +
+    stat_function(
+      aes(color = "Prior"),
+      fun = dnorm,
+      args = list(mean = 0.524, sd = 0.013),
+      linewidth = 0.6,
+      show.legend = FALSE
+    ) +
+    geom_vline(
+      xintercept = qnorm(
+        p = 0.025, mean = 0.524, sd = 0.013
+      ),
+      color = "red",
+      linetype = "dashed",
+      linewidth = 0.4
+    ) +
+    geom_vline(
+      xintercept = qnorm(
+        p = 0.975, mean = 0.524, sd = 0.013
+      ),
+      color = "red",
+      linetype = "dashed",
+      linewidth = 0.4
+    ) +
+    scale_color_manual(name = "", values = c("Prior" = "red")) +
+    scale_x_continuous(
+      limits = c(0.45, 0.6),
+      breaks = seq(0.45, 0.6, by = 0.05),
+      expand = c(0, 0)
+    ) +
+    scale_y_continuous(expand = c(0, 0)) +
+    labs(
+      title = "log10(IFR1 slope)",
+      y = "Density",
+      x = "Value"
+    ) +
+    theme_pub +
+    theme(
+      plot.title = element_text(
+        hjust = 0.5,
+        size = font_pt("body")
+      ),
+      legend.position = "none",
+      axis.text.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      plot.margin = margin(4, 2, 0, 4, "pt")
+    ),
+
+  manaus_2w_updated_draws_df %>% 
+    select(log10_ifr2_intercept, .chain) %>%
+    mutate(.chain = as.factor(.chain)) %>%
+    ggplot(aes(x = log10_ifr2_intercept)) +
+    geom_density(
+      aes(fill = .chain, color = .chain),
+      alpha = 0.7,
+      linewidth = 0.4,
+      show.legend = FALSE
+    ) +
+    stat_function(
+      aes(color = "Prior"),
+      fun = dnorm,
+      args = list(mean = -1.1828, sd = 0.3),
+      linewidth = 0.6,
+      show.legend = FALSE
+    ) +
+    geom_vline(
+      xintercept = qnorm(
+        p = 0.025, mean = -1.1828, sd = 0.3
+      ),
+      color = "red",
+      linetype = "dashed",
+      linewidth = 0.4
+    ) +
+    geom_vline(
+      xintercept = qnorm(
+        p = 0.975, mean = -1.1828, sd = 0.3
+      ),
+      color = "red",
+      linetype = "dashed",
+      linewidth = 0.4
+    ) +
+    scale_color_manual(name = "", values = c("Prior" = "red")) +
+    scale_x_continuous(limits = c(-2, 0), expand = c(0, 0)) +
+    scale_y_continuous(expand = c(0, 0)) +
+    labs(
+      title = "log10(IFR2 intercept)",
+      x = "Value"
+    ) +
+    theme_pub +
+    theme(
+      plot.title = element_text(
+        hjust = 0.5,
+        size = font_pt("body")
+      ),
+      legend.position = "none",
+      axis.text.y = element_blank(),
+      axis.title.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      plot.margin = margin(4, 2, 0, 4, "pt")
+    ),
+
+  align = "hv"
+)
+
+Figure_S4
+```
+
+```{r}
+save_plos(
+  plot = Figure_S4,
+  filename = "PDF/FigS4",
+  width_cm = in_to_cm(FIG_WIDTH_IN),
+  aspect = 0.7,
+  dpi = EXPORT_DPI,
+  formats = "pdf",
+  overwrite = TRUE
+)
+```
+

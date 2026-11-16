@@ -6,9 +6,9 @@ get("select", envir = asNamespace("dplyr"))
 
 
 ```{r}
-df <- read_csv("~/BIBC/General Research Profile/localrepo/GRP/data/repeat_blood_donors.csv")
+df <- read_csv("data/repeat_blood_donors.csv")
 df 
-thr <- 0.49
+thr <- 1.40
 ```
 
 ```{r}
@@ -368,7 +368,7 @@ ggplot(dfplot, aes(x = date, y = pneg, color = type)) +
 ```{r}
 Ns <- 1E5
 pneg_df <- dfplot %>% group_by(type) %>% 
-  summarise(S = sample(date, Ns, replace = TRUE, prob = pneg))
+  reframe(S = sample(date, Ns, replace = TRUE, prob = pneg))
 
 pneg_df
 ```
@@ -409,6 +409,11 @@ ggplot(pneg_df, aes(x = 1/S, fill = type)) +
 library(extraDistr)
 library(flexsurv)
 library(fitdistrplus)
+library(conflicted)
+
+conflict_prefer("select", "dplyr")
+conflict_prefer("filter", "dplyr")
+conflict_prefer("match", "base")
 ```
 
 ### gamma

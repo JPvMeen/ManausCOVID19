@@ -28,7 +28,7 @@ strain_frequency <- readRDS("data/strain_frequency")
 # Fit
 ```{r} 
 manaus_model_2w_SIRS_updated <- cmdstan_model("job/stan/manaus_2w_updated_s1re_strainfreq_RK_NB_survey_SIRS.stan") 
-manaus_2w_SIRS_updated_draws_df <- readRDS("job/output/manaus_2w_updated_s1re_strainfreq_RK_NB_survey_SIRS")  
+manaus_2w_SIRS_updated_draws_df <- readRDS("job/output/manaus_2w_updated_s1re_strainfreq_RK_NB_survey_SIRS")    
 ```
 
 ## parms

@@ -12,10 +12,11 @@ library(posterior)
 library(bayesplot)
 library(tidyverse)
 library(ggplot2)
+library(cowplot)
 ```
 
 ```{r}
-set_cmdstan_path(path = "C:/Users/JanPaul/Documents/.cmdstan/cmdstan-2.33.1")
+set_cmdstan_path(path = cmdstanr::cmdstan_path())
 ```
 
 ```{r}
@@ -24,6 +25,7 @@ agebin70_10y_levels <- c(paste0("[", seq(0, 60, by = 10), ",", seq(10, 70, by = 
 
 # Required data
 ```{r}
+list.files("job/output", pattern = "manaus_2w_updated", full.names = TRUE)
 data_hospdeaths <- readRDS("data/data_hospdeaths")
 stan_seroprevalence_data <- readRDS("data/stan_seroprevalence_data")
 strain_frequency <- readRDS("data/strain_frequency")
@@ -52,8 +54,8 @@ pars_all <- c(names(manaus_model_2w_updated$variables()$parameters),
 pars_all
               
 pars_interest <- c(pars, 
-                   names(manaus_model_2w_updated$variables()$transformed_parameters)[c(1,2,4:16)],
-                   names(manaus_model_2w_updated$variables()$generated_quantities[3:6])
+                   names(manaus_model_2w_updated$variables()$transformed_parameters)[c(1,2,4:20)],
+                   names(manaus_model_2w_updated$variables()$generated_quantities[3:5])
                    )
 
 simstates <- c("Susceptible","Infected1", "Infected1_re","Recovered1", "Waned1", "Infected2", "Infected2_re", "Recovered2", "Waned2", "total_N")
@@ -313,6 +315,8 @@ ifr_manaus_2w_updated_draws_df %>%
 ```{r}
 agebin70_10y_levels
 ```
+
+
 
 
 ## states
@@ -1013,4 +1017,58 @@ manaus_2w_simp_hospdeaths_with_CF_with_data_cumulative %>%
   scale_fill_manual(values = color_to_age_map) +
   facet_wrap(~AGEGROUP, scales = "free_y") +
   theme_bw() 
+```
+
+### Population IFR
+```{r}
+data_stan_Manaus_2w_updated_strainfreq <- readRDS("job/input/data_stan_Manaus_2w_strainfreq_survey.RDS")
+data_stan_Manaus_2w_updated_strainfreq$demography
+```
+
+```{r}
+seroprev_unadjusted <- manaus_2w_simp_sero_predictions %>% 
+  filter(state == "expected_serodata", month == 6) %>%
+  select(AGEGROUP, q50, SampleSize) %>%
+  reframe(seroprev = q50/SampleSize) %>%
+  pull(seroprev)
+
+seroprev_unadjusted
+```
+
+```{r}
+susceptible_june <- manaus_2w_simp_sims %>%
+  filter(state == "Susceptible", date == "2020-06-10") %>%
+  left_join(totals, by = c("date", "AGEGROUP")) %>%
+  mutate(q50_prop = q50 / q50_total) %>%
+  pull(q50_prop)
+
+susceptible_october <- manaus_2w_simp_sims %>%
+  filter(state == "Susceptible", date == "2020-10-14") %>%
+  left_join(totals, by = c("date", "AGEGROUP")) %>%
+  mutate(q50_prop = q50 / q50_total) %>%
+  pull(q50_prop)
+```
+
+
+```{r}
+log10_IFR <- -7:0
+intercept <-  -1.1828
+slope <- 0.524
+
+IFR <- 10^(intercept + slope*log10_IFR)
+
+weighted.mean(
+  x = IFR[2:7], 
+  w = data_stan_Manaus_2w_updated_strainfreq$demography[2:7]*seroprev_unadjusted
+)
+
+weighted.mean(
+  x = IFR, 
+  w = data_stan_Manaus_2w_updated_strainfreq$demography*(1-susceptible_june)
+)
+
+weighted.mean(
+  x = IFR, 
+  w = data_stan_Manaus_2w_updated_strainfreq$demography*(1-susceptible_october)
+)
 ```

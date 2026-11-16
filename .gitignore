@@ -2,3 +2,15 @@
 #!job/output/.gitkeep
 
 *.exe
+
+# Data from other references
+/data/
+
+# Generated figures (keep source .Rmd files)
+/figures/**
+!/figures/**/
+!/figures/**/*.Rmd
+
+# macOS and R temporary files
+.DS_Store
+.Rhistory
