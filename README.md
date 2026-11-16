@@ -45,7 +45,7 @@ Our best fit and SIRS fit required for analyses are stored in `job/output/` and 
 - `04`: Counterfactual analysis 
 
 #### 3. Published figures
-- `figures/PaperImages_updated`: Generates final figures used in the paper
+- `figures/PaperImages_PLOS`: Generates final figures used in the paper
 
 ### How to Cite
 
