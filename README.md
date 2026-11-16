@@ -39,7 +39,7 @@ job/Manaus_stan_job_2w_updated_strainfreq_RK_NB_survey_forcedbetaifr_SIRS.R
 Outputs are stored in `job/output/`
 
 #### 2. Analysis
-Our best fit and SIRS fit required for analyses are stored in `job/output`.
+Our best fit and SIRS fit required for analyses are stored in `job/output/` and managed using `Git LFS`. Run `git lfs pull` after cloning the repository to retrieve the complete model outputs.
 - `03_a`: Full model analysis (fit, parameter estimates, calculations, plots)
 - `03_b`: SIRS model analysis
 - `04`: Counterfactual analysis 
